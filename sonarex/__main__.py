@@ -8,10 +8,10 @@ import sys
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from . import APP_NAME
+from . import APP_NAME, UI_POINT_SIZE
 from .config import ensure_config
 from .search import ugrep_available
-from .window import MainWindow
+from .window import MainWindow, tune_palette
 
 
 def resolve_folder(argument: str | None) -> tuple[str, str | None]:
@@ -61,6 +61,15 @@ def main() -> int:
     # name in the dock and alt-tab. Without it the Wayland app_id is derived
     # from argv[0] ("python3") and matches no desktop entry at all.
     app.setDesktopFileName("sonarex")
+
+    # Set on the application rather than per widget, so the query and folder
+    # rows scale along with the two panes. The panes then override the family
+    # (not the size) with a fixed-width one — see window.mono_font.
+    font = app.font()
+    font.setPointSize(UI_POINT_SIZE)
+    app.setFont(font)
+
+    tune_palette(app)
 
     if not ugrep_available():
         QMessageBox.critical(

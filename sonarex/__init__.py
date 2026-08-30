@@ -2,7 +2,8 @@
 
 APP_NAME = "SonarEx"
 
-# The results list and the preview pane are both read closely rather than
-# glanced at, so this stays near the desktop default rather than scaling up
-# the way a launcher would.
-UI_POINT_SIZE = 11
+# Applied to the whole application in __main__, so the controls and the two
+# panes stay in proportion. A couple of points above the desktop default:
+# results and file contents are both read closely, and a path is easier to
+# scan at a size that doesn't need leaning in for.
+UI_POINT_SIZE = 13

@@ -10,8 +10,9 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontDatabase, QPalette
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -29,16 +30,82 @@ from . import APP_NAME, UI_POINT_SIZE
 from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner
 from .viewer import read_for_preview
 
-# The absolute path of the file a row stands for. The row's own text is the
-# same path today, but reading it back from a role rather than from the label
-# keeps the display free to change (relative paths, an added match count)
-# without breaking the preview.
+# The absolute path of the file a row stands for. The row's *text* is only the
+# part below the searched folder, so it is not a usable path on its own —
+# everything that opens or stats a file must read this role instead.
 PATH_ROLE = Qt.ItemDataRole.UserRole
 
 # Results/preview split, as a ratio of the window width. The preview needs the
 # room; the list only has to show a path.
 SPLIT_LIST = 2
 SPLIT_PREVIEW = 3
+
+
+# How far the window surface is lightened away from the panes sitting on it,
+# as a QColor.lighter() percentage. Enough to read as a separate surface,
+# not so much that the window starts competing with its own contents.
+WINDOW_LIGHTEN = 140
+
+# Below this much separation in lightness, two surfaces read as one.
+MIN_SEPARATION = 6
+
+
+def tune_palette(app: QApplication) -> None:
+    """Lighten the window surface so the list and preview stand out on it.
+
+    Some themes hand Qt the same color for `Window` (the surface behind the
+    layout) and `Base` (the background of the list, the preview and the text
+    fields). Yaru-dark through the Fusion style is one: both arrive as
+    #2a2a2a, so the panes have no edge at all and the whole window reads as
+    one flat slab.
+
+    Lightening `Window` — rather than darkening the panes — keeps the panes
+    at exactly the color the theme intended for content, and the surround
+    becomes the thing that moved.
+
+    Deliberately conditional. In a light theme `Window` is already a gray
+    below a white `Base`, and lightening it there would push it *toward*
+    white and flatten the very contrast this is meant to create. So the
+    change is applied only when it actually increases the separation between
+    the two, which also makes it a no-op on a theme that already spaces them
+    properly, and on a pure-black palette where `lighter()` cannot move at
+    all.
+    """
+    palette = app.palette()
+    window = palette.color(QPalette.ColorRole.Window)
+    base = palette.color(QPalette.ColorRole.Base)
+
+    before = abs(window.lightness() - base.lightness())
+    if before >= MIN_SEPARATION:
+        return  # the theme already distinguishes them; leave it alone
+
+    lightened = window.lighter(WINDOW_LIGHTEN)
+    if abs(lightened.lightness() - base.lightness()) <= before:
+        return  # lightening would not help (light theme, or a black surface)
+
+    palette.setColor(QPalette.ColorRole.Window, lightened)
+    # Buttons keep the theme's own color: against a lightened surround they
+    # now read as raised components, which is the point of the change.
+    app.setPalette(palette)
+
+
+def mono_font() -> QFont:
+    """The system's fixed-width font at the app's point size.
+
+    Both panes use it: the preview because most of what turns up there is
+    source or config, where alignment carries meaning, and the results list
+    because a column of paths is far easier to scan when the segments line up
+    between rows.
+
+    Taken from QFontDatabase rather than named outright, so this follows
+    whatever the desktop is configured to use for monospace. The style hint is
+    still set as a fallback, for the case where that lookup hands back
+    something proportional.
+    """
+    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    font.setPointSize(UI_POINT_SIZE)
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    return font
 
 
 class MainWindow(QWidget):
@@ -51,6 +118,11 @@ class MainWindow(QWidget):
         self._runner.matchFound.connect(self._on_match)
         self._runner.finished.connect(self._on_search_finished)
         self._match_count = 0
+        # The folder the current results actually came from, captured when the
+        # search starts. Deliberately not read back from the folder row: that
+        # stays editable while results are on screen, and a row's path must
+        # not shift meaning because someone typed in a field afterwards.
+        self._search_root = ""
 
         layout = QVBoxLayout(self)
 
@@ -88,16 +160,13 @@ class MainWindow(QWidget):
 
         # --- results / preview -------------------------------------------
         self.results = QListWidget()
+        self.results.setFont(mono_font())
         self.results.currentItemChanged.connect(self._on_selection_changed)
 
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        # A fixed-pitch font because most of what turns up here is source or
-        # config, where alignment carries meaning.
-        preview_font = QFont("Monospace", UI_POINT_SIZE)
-        preview_font.setStyleHint(QFont.StyleHint.Monospace)
-        self.preview.setFont(preview_font)
+        self.preview.setFont(mono_font())
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.results)
@@ -145,15 +214,59 @@ class MainWindow(QWidget):
         self.results.clear()
         self.preview.clear()
         self._match_count = 0
+        # Pinned here, for the whole life of these results: the same value
+        # ugrep is given, so every path it prints is genuinely underneath it
+        # and `_display_path` can rely on the prefix matching.
+        self._search_root = folder
         self.status.setText(f"Searching {folder}…")
         self._runner.start(query, folder)
+
+    # -- rows ---------------------------------------------------------------
+
+    def _display_path(self, path: str) -> str:
+        """`path` as shown in the list: relative to the searched folder.
+
+        Every hit lives under the folder that was searched, so repeating that
+        prefix on every row costs width and tells the reader nothing. What
+        distinguishes one result from another is the part below it.
+
+        `os.path.relpath` does the work rather than string surgery on the
+        prefix: it understands path structure, so it can't sever a name
+        mid-segment the way `str.removeprefix` would turn `/tmp/foobar` into
+        `bar` when the root is `/tmp/foo`.
+
+        Falls back to the absolute path whenever a relative one would be
+        misleading — no root recorded yet, a hit somewhere outside the root
+        (which would come out as a chain of `..`), or the ValueError relpath
+        raises when two paths share no common base at all.
+        """
+        if not self._search_root:
+            return path
+        try:
+            relative = os.path.relpath(path, self._search_root)
+        except ValueError:
+            return path
+        if relative.startswith(os.pardir):
+            return path
+        return relative
+
+    def _make_item(self, path: str) -> QListWidgetItem:
+        """A row for `path`: relative label, absolute path underneath.
+
+        The absolute path lives in `PATH_ROLE`, and everything that opens or
+        stats a file reads it from there — never from the row's text, which is
+        now only part of a path and is a display detail besides.
+        """
+        item = QListWidgetItem(self._display_path(path))
+        item.setData(PATH_ROLE, path)
+        # The full path stays reachable, since the row no longer shows it.
+        item.setToolTip(path)
+        return item
 
     # -- search callbacks --------------------------------------------------
 
     def _on_match(self, path: str) -> None:
-        item = QListWidgetItem(path)
-        item.setData(PATH_ROLE, path)
-        self.results.addItem(item)
+        self.results.addItem(self._make_item(path))
         self._match_count += 1
         # Cheap enough to do per hit, and it is the only sign the search is
         # still making progress on a long run.
@@ -173,9 +286,12 @@ class MainWindow(QWidget):
 
         self.status.setToolTip("")
         self._sort_by_mtime()
+        # The root is named here because the rows no longer carry it, and the
+        # folder row above is not proof of it — that field stays editable once
+        # a search has finished.
         self.status.setText(
             f"{self._match_count} file{'' if self._match_count == 1 else 's'}"
-            " — newest first"
+            f" in {self._search_root} — newest first"
         )
 
     def _sort_by_mtime(self) -> None:
@@ -217,9 +333,7 @@ class MainWindow(QWidget):
         self.results.blockSignals(True)
         self.results.clear()
         for _, path in dated:
-            item = QListWidgetItem(path)
-            item.setData(PATH_ROLE, path)
-            self.results.addItem(item)
+            self.results.addItem(self._make_item(path))
         self.results.blockSignals(False)
 
         self._match_count = self.results.count()
