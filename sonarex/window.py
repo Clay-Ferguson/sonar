@@ -13,6 +13,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -29,7 +30,7 @@ from PyQt6.QtWidgets import (
 from . import APP_NAME, UI_POINT_SIZE
 from .help import help_icon, show_help
 from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner
-from .viewer import read_for_preview
+from .viewer import open_in_editor, read_for_preview
 
 # The absolute path of the file a row stands for. The row's *text* is only the
 # part below the searched folder, so it is not a usable path on its own —
@@ -65,6 +66,10 @@ SEARCH_BUTTON_PADDING = "8px 24px"
 # button this tall leaves the glyph marooned in the middle and unreadable.
 ICON_BUTTON_RATIO = 0.68
 
+# The control bar under the preview is secondary to the header, so its
+# button is padded more modestly than the Search button.
+CONTROL_BAR_PADDING = "5px 16px"
+
 
 def action_button_style(background: str, padding: str = "0px") -> str:
     """Qt stylesheet for a header button of the given background color.
@@ -94,6 +99,11 @@ def action_button_style(background: str, padding: str = "0px") -> str:
         }}
         QPushButton:hover {{ background-color: {base.lighter(115).name()}; }}
         QPushButton:pressed {{ background-color: {base.darker(115).name()}; }}
+        QPushButton:disabled {{
+            background-color: {base.darker(150).name()};
+            color: {QColor(BUTTON_FG).darker(180).name()};
+            border-color: {base.darker(160).name()};
+        }}
     """
 
 
@@ -261,9 +271,43 @@ class MainWindow(QWidget):
         self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.preview.setFont(mono_font())
 
+        # --- the preview's own control bar -------------------------------
+        # Sits inside the right-hand pane rather than under the whole window,
+        # so it reads as belonging to the file being shown above it — and so
+        # dragging the splitter moves it with the pane it controls.
+        self.open_button = QPushButton("Open")
+        self.open_button.setStyleSheet(
+            action_button_style(HELP_BUTTON_BG, CONTROL_BAR_PADDING)
+        )
+        self.open_button.setToolTip("Open this file in the editor")
+        self.open_button.setAutoDefault(False)
+        # Nothing is selected at startup, and "Open" with no file would be a
+        # button that silently does nothing.
+        self.open_button.setEnabled(False)
+        self.open_button.clicked.connect(self._open_selected)
+
+        self.wrap_check = QCheckBox("Word Wrap")
+        self.wrap_check.setChecked(True)  # matches the pane's initial mode
+        self.wrap_check.toggled.connect(self._set_word_wrap)
+
+        control_bar = QHBoxLayout()
+        control_bar.setContentsMargins(0, 0, 0, 0)
+        control_bar.addWidget(self.open_button)
+        control_bar.addStretch(1)
+        control_bar.addWidget(self.wrap_check)
+
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        # Flush with the splitter edge: the panel is a container, not a frame
+        # of its own, and default margins would inset the preview from the
+        # results list beside it.
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.preview, 1)
+        right_layout.addLayout(control_bar)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.results)
-        splitter.addWidget(self.preview)
+        splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, SPLIT_LIST)
         splitter.setStretchFactor(1, SPLIT_PREVIEW)
         splitter.setSizes([SPLIT_LIST * 100, SPLIT_PREVIEW * 100])
@@ -430,6 +474,9 @@ class MainWindow(QWidget):
         self.results.blockSignals(False)
 
         self._match_count = self.results.count()
+        # Signals were blocked across the rebuild, so the button's state was
+        # not refreshed by the clear; put it back in step with the list.
+        self.open_button.setEnabled(False)
         if selected_path:
             for row in range(self.results.count()):
                 if self.results.item(row).data(PATH_ROLE) == selected_path:
@@ -437,6 +484,34 @@ class MainWindow(QWidget):
                     break
 
     # -- preview -----------------------------------------------------------
+
+    def _set_word_wrap(self, wrap: bool) -> None:
+        """Toggle wrapping in the preview pane.
+
+        Deliberately not persisted: it is a per-look preference about the file
+        on screen right now, and it starts on because most of what turns up in
+        a content search is prose or long lines that would otherwise need
+        horizontal scrolling to read at all.
+        """
+        self.preview.setLineWrapMode(
+            QPlainTextEdit.LineWrapMode.WidgetWidth
+            if wrap
+            else QPlainTextEdit.LineWrapMode.NoWrap
+        )
+
+    def _open_selected(self) -> None:
+        """Hand the selected file to the editor.
+
+        The path comes from PATH_ROLE, not the row's text, which is only the
+        part below the search root.
+        """
+        item = self.results.currentItem()
+        if item is None:
+            return
+        error = open_in_editor(item.data(PATH_ROLE))
+        if error:
+            self.status.setText(error.replace("\n", "  "))
+            self.status.setToolTip(error)
 
     def _on_selection_changed(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
@@ -446,6 +521,8 @@ class MainWindow(QWidget):
         Wired to the current *item* rather than to clicks, so walking the
         results with the arrow keys previews each file too.
         """
+        # Open acts on the current row, so it is live exactly when one exists.
+        self.open_button.setEnabled(current is not None)
         if current is None:
             self.preview.clear()
             return

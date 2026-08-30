@@ -1,15 +1,25 @@
-"""Reading a file for the preview pane.
+"""What SonarEx does with the file the user picked: show it, or open it.
 
-The pane is read-only plain text, so this only has to answer one question:
-what should be shown for this path? Every answer is a string — a file that
-can't be read produces a notice describing why, never an exception, since
-this runs inside a selection-changed callback where a traceback would take
-the window down.
+`read_for_preview` answers what the read-only pane should display. Every
+answer is a string — a file that can't be read produces a notice describing
+why, never an exception, since it runs inside a selection-changed callback
+where a traceback would take the window down.
+
+`open_in_editor` hands the file to a real editor, for when reading it here
+isn't enough.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+
+# The editor the Open button launches. Carried over unchanged from the
+# Nautilus version, which spawned exactly this. Slated to become a config
+# key — when it does, this becomes the default rather than the only value,
+# which is why callers go through `open_in_editor` rather than reading it.
+EDITOR_COMMAND = "/usr/bin/code"
 
 # Beyond this, the file is described rather than shown. The pane holds plain
 # text, and loading tens of megabytes into it stalls the GUI thread laying
@@ -77,3 +87,70 @@ def read_for_preview(path: str) -> tuple[str, bool]:
     # "replace" rather than "strict": a file with one bad byte is still worth
     # reading, and a search hit has already proved there is text in there.
     return (data.decode("utf-8", "replace"), False)
+
+
+def _child_env() -> dict[str, str]:
+    """Our environment, minus SonarEx's own virtualenv.
+
+    start.sh runs the app through `uv run`, which puts .venv/bin on PATH and
+    sets VIRTUAL_ENV. Left in place those are inherited by the editor, so
+    VS Code would offer SonarEx's interpreter as the Python environment for
+    whatever project it opens. The editor should see the environment a
+    terminal would give it, not ours.
+    """
+    env = os.environ.copy()
+    venv = env.pop("VIRTUAL_ENV", None)
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    if venv:
+        bin_dir = os.path.normpath(os.path.join(venv, "bin"))
+        kept = [
+            p
+            for p in env.get("PATH", "").split(os.pathsep)
+            if p and os.path.normpath(p) != bin_dir
+        ]
+        env["PATH"] = os.pathsep.join(kept)
+    return env
+
+
+def open_in_editor(path: str) -> str | None:
+    """Open `path` in the editor. Returns an error message, or None on success.
+
+    An error is returned rather than raised so the caller can put it in the
+    status line: failing to open a file is worth saying, but not worth an
+    exception out of a button handler.
+
+    The editor is checked on PATH first, so a missing one is reported as the
+    missing program it is instead of a bare OSError from the spawn.
+
+    Spawned with `start_new_session=True` and its streams discarded, so the
+    editor is not a child that dies with SonarEx and cannot stall the GUI by
+    filling a pipe nobody reads.
+    """
+    if not os.path.exists(path):
+        return f"Cannot open — the file no longer exists:\n{path}"
+
+    program = EDITOR_COMMAND
+    if not os.path.isabs(program):
+        resolved = shutil.which(program)
+        if resolved is None:
+            return f"Cannot open '{os.path.basename(path)}': '{program}' is not on PATH."
+        program = resolved
+    elif not os.path.exists(program):
+        return (
+            f"Cannot open '{os.path.basename(path)}': {program} is not installed.\n"
+            "Install VS Code, or point EDITOR_COMMAND at another editor."
+        )
+
+    try:
+        subprocess.Popen(
+            [program, path],
+            env=_child_env(),
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        return f"Could not open '{os.path.basename(path)}':\n{exc}"
+    return None
