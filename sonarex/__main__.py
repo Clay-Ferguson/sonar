@@ -56,7 +56,12 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setApplicationDisplayName(APP_NAME)
+    # applicationDisplayName is deliberately NOT set. Every platform backend
+    # runs its window titles through QPlatformWindow::formatWindowTitle(),
+    # which appends the display name to whatever setWindowTitle() was given —
+    # so with it set, the help dialog's "SonarEx — Query Syntax" reached the
+    # title bar as "SonarEx — Query Syntax — SonarEx". Each window spells out
+    # its own full title instead.
     # Ties the window to sonarex.desktop, so the desktop shows our icon and
     # name in the dock and alt-tab. Without it the Wayland app_id is derived
     # from argv[0] ("python3") and matches no desktop entry at all.

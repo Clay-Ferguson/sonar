@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QFontDatabase, QPalette
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import APP_NAME, UI_POINT_SIZE
+from .help import help_icon, show_help
 from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner
 from .viewer import read_for_preview
 
@@ -48,6 +49,52 @@ WINDOW_LIGHTEN = 140
 
 # Below this much separation in lightness, two surfaces read as one.
 MIN_SEPARATION = 6
+
+# Header button colors. Search is a muted, desaturated green that reads as the
+# primary action without turning into a traffic light; Help is a neutral gray
+# so it sits beside it as secondary. Light text works on both, so these are
+# defined outright rather than derived from the palette the way the window
+# surface is.
+SEARCH_BUTTON_BG = "#4a6f45"
+HELP_BUTTON_BG = "#5a5a5a"
+BUTTON_FG = "#f0f2ef"
+SEARCH_BUTTON_PADDING = "8px 24px"
+
+# The icon inside a square header button, as a fraction of the button. A
+# QPushButton draws icons at 16px by default whatever its own size, which in a
+# button this tall leaves the glyph marooned in the middle and unreadable.
+ICON_BUTTON_RATIO = 0.68
+
+
+def action_button_style(background: str, padding: str = "0px") -> str:
+    """Qt stylesheet for a header button of the given background color.
+
+    Styling a button at all opts it out of the native style's rendering —
+    including its hover and pressed feedback — so those states have to be
+    restated here or the button would look inert to click. Both are derived
+    from `background`, so each button's color stays a single value.
+
+    The border is explicit for the same reason: with a stylesheet applied,
+    Fusion no longer draws its own frame, and without one the button reads as
+    a flat colored rectangle rather than a control.
+
+    `padding` defaults to none, for a button whose size is set explicitly (the
+    square icon buttons); padding on top of a fixed size would only squeeze
+    the content.
+    """
+    base = QColor(background)
+    return f"""
+        QPushButton {{
+            background-color: {background};
+            color: {BUTTON_FG};
+            border: 1px solid {base.darker(125).name()};
+            border-radius: 4px;
+            padding: {padding};
+            font-weight: bold;
+        }}
+        QPushButton:hover {{ background-color: {base.lighter(115).name()}; }}
+        QPushButton:pressed {{ background-color: {base.darker(115).name()}; }}
+    """
 
 
 def tune_palette(app: QApplication) -> None:
@@ -126,6 +173,18 @@ class MainWindow(QWidget):
 
         layout = QVBoxLayout(self)
 
+        # The two rows are separate layouts, so their labels are pinned to a
+        # common width here rather than left to size themselves — otherwise
+        # "Search:" and "Folder:" render a few pixels apart in a proportional
+        # font and the two fields below start at visibly different offsets.
+        # Measured rather than hardcoded, so it survives a font or point-size
+        # change and a translation that makes either word longer.
+        search_label = QLabel("Search:")
+        folder_label = QLabel("Folder:")
+        label_width = max(search_label.sizeHint().width(), folder_label.sizeHint().width())
+        search_label.setFixedWidth(label_width)
+        folder_label.setFixedWidth(label_width)
+
         # --- query row ---------------------------------------------------
         self.query_edit = QLineEdit()
         self.query_edit.setPlaceholderText(
@@ -133,27 +192,61 @@ class MainWindow(QWidget):
         )
         self.query_edit.returnPressed.connect(self.start_search)
         self.search_button = QPushButton("Search")
+        self.search_button.setStyleSheet(
+            action_button_style(SEARCH_BUTTON_BG, SEARCH_BUTTON_PADDING)
+        )
         self.search_button.clicked.connect(self.start_search)
         # So Enter anywhere in the window runs the search rather than
         # activating whichever button happens to have focus.
         self.search_button.setAutoDefault(False)
 
+        self.help_button = QPushButton()
+        self.help_button.setStyleSheet(action_button_style(HELP_BUTTON_BG))
+        icon = help_icon()
+        if icon.isNull():
+            # No icon theme has a help glyph (a bare desktop install): show the
+            # character instead, rather than an empty square.
+            self.help_button.setText("?")
+        else:
+            self.help_button.setIcon(icon)
+        self.help_button.setToolTip("Query syntax help")
+        self.help_button.setAutoDefault(False)
+        self.help_button.clicked.connect(lambda: show_help(self))
+
+        # The padded Search button sets the height for every control in both
+        # rows: a stock QLineEdit is shorter, and mixing the two leaves the
+        # fields floating with a gap above and below them. Taken from the
+        # button's own size hint rather than hardcoded, so adjusting
+        # SEARCH_BUTTON_PADDING resizes the whole header together.
+        row_height = self.search_button.sizeHint().height()
+        self.query_edit.setFixedHeight(row_height)
+        self.help_button.setFixedSize(row_height, row_height)
+        # Scaled to the button rather than left at QPushButton's 16px default.
+        glyph = int(row_height * ICON_BUTTON_RATIO)
+        self.help_button.setIconSize(QSize(glyph, glyph))
+
         query_row = QHBoxLayout()
+        query_row.addWidget(search_label)
         query_row.addWidget(self.query_edit, 1)
+        query_row.addWidget(self.help_button)
         query_row.addWidget(self.search_button)
         layout.addLayout(query_row)
 
         # --- folder row --------------------------------------------------
         self.folder_edit = QLineEdit(folder)
+        self.folder_edit.setFixedHeight(row_height)
         self.folder_edit.returnPressed.connect(self.start_search)
         browse_button = QPushButton("…")
-        browse_button.setFixedWidth(36)
+        # Square, at the shared row height: with only an ellipsis on it there
+        # is no text width to size to, so it would otherwise be a lone stubby
+        # control at the end of an otherwise uniform header.
+        browse_button.setFixedSize(row_height, row_height)
         browse_button.setToolTip("Choose the folder to search")
         browse_button.setAutoDefault(False)
         browse_button.clicked.connect(self._browse)
 
         folder_row = QHBoxLayout()
-        folder_row.addWidget(QLabel("Folder:"))
+        folder_row.addWidget(folder_label)
         folder_row.addWidget(self.folder_edit, 1)
         folder_row.addWidget(browse_button)
         layout.addLayout(folder_row)
