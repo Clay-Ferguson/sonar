@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SonarEx
+Comment=Search file contents recursively under a folder
+Exec=/mnt/projects/sonarex/start.sh
+Icon=system-search
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupWMClass=sonarex

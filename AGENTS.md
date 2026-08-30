@@ -1,48 +1,125 @@
-# SonarEx (Nautilus Search Extension)
+# Notes to AI Agents
 
-# About SonarEx
-SonarEx is an extension for Linux Nautilus which adds recursive content-search items to the right-click context menu of folders and of the folder background. It has a config file named `sonarex-config.yaml` (at `~/.config/sonarex/sonarex-config.yaml`), which defines the include/exclude glob patterns that scope every search.
+## What this is
 
-## Essentials about SonarEx
-- Nautilus extension entry point is `sonarex_action.py`; class `SonarExMenuItems` derives from `GObject.GObject` + `Nautilus.MenuProvider` and registers three context menu items (two search items plus "Open SonarEx Configs").
-- Menu item `name=` identifiers use the `SonarExMenuItems::` prefix. This must not collide with other extensions loaded from the same directory — Nautilus loads every extension into one process.
-- `setup.sh` installs to `~/.local/share/nautilus-python/extensions/`; rerun after any code change and restart Nautilus with `nautilus -q`.
-- Core constants live on `SonarExMenuItems`: `VSCODE_PATH` (default `/usr/bin/code`) and `CONFIG_FILE` (`~/.config/sonarex/sonarex-config.yaml`). `VSCODE_PATH` is passed into `StaticSearchHandler` and forwarded through the shell scripts as argv; the search modules never import it.
-- Dependencies: `python3-nautilus`, `python3-yaml`, `ugrep` (both Search menu items), `zenity` (static search results dialog), `gnome-terminal`, `pdftotext` (optional, from `poppler-utils` for PDF search).
-- `setup.sh` must copy every new module/script into the extensions dir; the `.sh` helpers also need `chmod +x` there. Shell helpers locate each other via `$(dirname "${BASH_SOURCE[0]}")`, so they must land in the same directory.
+SonarEx is a PyQt6 desktop app: a two-pane content-search window over
+[ugrep](https://github.com/Genivia/ugrep). A query field and a folder row sit
+across the top; below them a splitter holds the matching file paths on the
+left and a read-only view of the selected file on the right.
 
-## Menu Actions
-- **Search (Interactive)** shows on folders/background as a single menu item (no submenu). Launches ugrep's interactive TUI (`ugrep -Q -% --files -r -i .`) in `gnome-terminal` with the folder as working directory; implemented by `SearchHandler.search_folder()` in `search_ugrep.py`. User types the pattern live in the TUI, no zenity involved. `-%` = Boolean query mode: `"quoted phrases"` are exact/literal, space/AND = all terms, OR = any, NOT/`-` = exclude, unquoted terms are regex. `--files` = queries match at whole-file scope, not per line. Honors config `search.included`/`search.excluded` patterns via ugrep `-g` globs (find-style `*/name/*` exclusions convert to `!name/`). Searches PDF content via `--filter='pdf:pdftotext -q % -'` when pdftotext is installed (ugrep executes filters directly, not via shell—no redirection/pipes allowed).
-- **Search (Static)** shows on folders/background next to the interactive item. Three-stage pipeline: `StaticSearchHandler.search_folder_static()` in `search_static.py` (subclasses `SearchHandler` to reuse the config→glob pipeline via `build_ugrep_glob_list()`) → `search_static.sh` in `gnome-terminal` → `search_results_dialog.sh` detached.
-  - `search_static.sh` (argv: `<search-dir> <vscode-path> [extra ugrep args...]`, extras passed as separate argv entries so nothing is shell-quoted) owns terminal-side interaction—add future prompts/options there, not in Python. Prompts for a query, runs `ugrep -r -i -l -% --files <globs> -- "$QUERY" "$SEARCH_DIR"` (absolute dir so output paths are absolute; `--` guards queries starting with `-`) into an `mktemp` results file, sorts that file newest-modified-first, then hands off and exits so the terminal closes.
-    - **Result ordering is done here, not by ugrep.** ugrep's `--sort=rchanged` sorts only *within* each directory and emits subdirectories after files, so it does not produce a tree-wide newest-first list — confirmed against ugrep 5.0.0; don't "simplify" the sort back into the ugrep call. The sort is `xargs -d '\n' stat --printf '%Y\t%n\n' | sort -rn -k1,1 | cut -f2-`: cutting from field 2 keeps tabs inside filenames, files deleted since the search drop out, and an empty/failed result falls back to ugrep's ordering. Pauses for Enter only on error, empty query, or no matches (ugrep exit 1 = no match, >1 = error).
-  - `search_results_dialog.sh` (argv: `<results-file> <search-root> <vscode-path> <query> <status-file>`) is launched via `setsid` (fallback `nohup`) so it outlives the terminal; it owns the results file and deletes it via an EXIT trap. Loops `zenity --list` so the window reappears after each open; **breaks on an empty selection**—looping there spins the CPU if zenity ever returns success without displaying. Rows are shown in the order the results file lists them (newest-modified first) — the dialog never re-sorts. Rows are paths relative to the search root (`${path#"$SEARCH_ROOT"/}`, quoted so glob chars in the root stay literal) and are rebuilt by prepending the root. `--text` is Pango markup: escape user data with `escape_markup()`, which uses `sed` because bash 5.2+ reads an unquoted `&` in a `${var//x/y}` replacement as the matched text. Rows are argv, hence the `MAX_ROWS=2000` cap. `open_path()` sends binary/media extensions to `xdg-open` and everything else to VS Code.
-  - **zenity option support varies by version** (4.0 was a GTK4 rewrite), and an unknown option makes zenity exit instantly without a window. Never hardcode optional flags: `zenity_supports()` greps `zenity --help-all` and `ZENITY_ARGS` is assembled from what that reports (`--multiple`, `--separator`, `--ok-label`, `--cancel-label`, `--text`, `--width`, `--height` are all conditional). Add future flags the same way.
-  - **Detaching the dialog is load-bearing and easy to break.** gnome-terminal signals its whole process group when the window closes, which killed the dialog before it could establish its own session; a plain `setsid cmd &` loses this race. The working launch is `nohup setsid --fork bash …` (nohup for the SIGHUP, `--fork` so the session is created by a process that isn't this script's job-control leader) followed by polling the log until the dialog reports itself started. Verify any change to this by running the terminal script under `setsid` and then `kill -HUP 0; kill -TERM 0` on the group—launching it from an ordinary shell does *not* exercise the teardown and will pass while the real thing fails.
-  - Because the dialog is detached it has no terminal to complain to, so it is launched with its output appended to an `mktemp` **status file**, into which it writes `dialog started` as its very first statement. `search_static.sh` polls that file for up to 2s: seeing the line means the dialog is up and the terminal may close; not seeing it means the dialog died on launch, so the terminal stays open, prints whatever the dialog wrote, saves the results under a durable `/tmp/sonarex-search-<timestamp>.txt`, and opens that in VS Code. The dialog owns both temp files and removes them via an EXIT trap. Separately, if the first zenity call quits in <700ms the dialog assumes no window appeared and falls back to VS Code the same way. Between the two, a search never ends in silence—keep that property.
-- **Open SonarEx Configs** shows in both the file-selection and background menus. Opens `CONFIG_FILE` in VS Code via `subprocess.Popen([self.VSCODE_PATH, self.CONFIG_FILE])`.
+It **used to be a Nautilus extension** driving `zenity` and `gnome-terminal`.
+That is gone, deliberately and entirely: a Nautilus extension runs inside the
+Nautilus process, which already has a GTK main loop, so PyQt6 cannot live
+there. If you are tempted to re-add file-manager integration, it has to be a
+separate process launched with a folder argument — never an import into
+Nautilus. Roughly 330 lines of defensive bash (a `nohup setsid --fork` detach
+dance, a status-file handshake, runtime zenity-flag probing, a 2000-row argv
+cap) died with that change; none of it should come back.
 
-## Configuration
-- Config path: `~/.config/sonarex/sonarex-config.yaml`, seeded by `setup.sh` if absent. `example-config/sonarex-config.yaml` is the reference sample; `docs/CONFIG.md` is the full user-facing reference.
-- Only two keys exist: `search.included` and `search.excluded`, both lists of glob patterns, read by `SearchHandler._get_search_patterns()` in `search_ugrep.py`.
-- Loading is `SearchHandler._load_config()` — a guarded `import yaml` (`YAML_AVAILABLE`) plus `yaml.safe_load`, returning `{}` on any failure so a missing or broken config degrades to an unfiltered search rather than an error.
+## Running
 
-## Patterns & Conventions
-- **URI handling**: Always validate `file://` prefix, strip it with `[7:]`, decode with `urllib.parse.unquote()`, then operate on filesystem path. If the target isn't a directory, fall back to `os.path.dirname()`.
-- **Glob translation**: config patterns are converted to ugrep `-g` arguments by `_convert_excluded_pattern_to_ugrep_glob()` and assembled by `build_ugrep_glob_list()` (flat argv list, used by the static path) or `_build_ugrep_glob_args()` (shlex-quoted string, used by the interactive path). Reuse these rather than building globs inline.
-- **Shell argv, not shell strings**: extra ugrep arguments travel from Python to `search_static.sh` as separate argv entries and are re-expanded with `"$@"`. Never interpolate user input into a shell command string.
-- **Error handling**: Wrap risky IO in try/except, log via `print()` for journalctl inspection. No error dialogs—keep UI non-intrusive.
-- **Menu item naming**: Use the `SonarExMenuItems::` namespace prefix for all `MenuItem` names to avoid conflicts with other Nautilus extensions.
+```bash
+./start.sh [FOLDER]
+```
 
-## Workflows
-- **Install/test loop**: Run `./setup.sh`, then `nautilus -q` to restart Nautilus. Open a new Nautilus window to test changes.
-- **Debugging**: Tail logs with `journalctl -f | grep nautilus` (or `journalctl -f /usr/bin/nautilus`). Add temporary `print()` statements in handlers when Nautilus swallows tracebacks—they appear in the journal.
-- **Syntax checks**: `python3 -m py_compile sonarex_action.py search_ugrep.py search_static.py` and `bash -n search_static.sh search_results_dialog.sh`.
-- **Testing fixtures**: Verify against folders, empty-space background, and a non-folder selection (search items must not appear); folders containing PDFs, excluded directories like `node_modules`, and result sets both above and below the 2000-row cap.
-- **Dependency installation**: `sudo apt install python3-nautilus python3-yaml zenity ugrep poppler-utils` installs all runtime dependencies. Minimal system: `python3-nautilus` + `ugrep`; `zenity` needed for Search (Static), PDF search optional.
+`start.sh` runs the app through `uv`, which rebuilds the virtualenv from
+`pyproject.toml` on every run — there is no install step. `pyproject.toml`
+sets `package = false`: the code runs straight out of the tree, so there is
+nothing to reinstall after an edit.
 
-## Extension Points
-- **New menu actions**: Add in `get_file_items()` for selection-based items or `get_background_items()` for empty-space context menus. Create `Nautilus.MenuItem` with a unique `SonarExMenuItems::action_name` identifier and connect to a handler method.
-- **New search behavior**: Terminal-side prompts and options belong in `search_static.sh`, not in Python. Results-window behavior belongs in `search_results_dialog.sh`.
-- **New config keys**: Add under the `search:` mapping and read them through `_load_config()`; document them in `docs/CONFIG.md` and add them to `example-config/sonarex-config.yaml` and the `setup.sh` default heredoc.
-- **Changing editor**: Update `VSCODE_PATH` in `sonarex_action.py`; it is the single source, forwarded into the static search pipeline as argv.
+The folder is the **only** command-line argument, and it only prefills the
+folder row. No search ever runs automatically — a search needs a query, and
+the query only ever comes from the window.
+
+## Architecture
+
+- `sonarex/__main__.py` — entry point: argparse, `QApplication`, the ugrep
+  check, folder resolution. The `folder` argument is `nargs="?"` rather than
+  required because argparse reports a missing argument on stderr and exits
+  before a `QApplication` exists, which is invisible when launched from a
+  desktop icon; every startup failure is a `QMessageBox` instead.
+- `sonarex/config.py` — the YAML config plus the glob translation it feeds.
+  `convert_excluded_pattern()` turns find-style `*/name/*` into ugrep's
+  `!name/`; `search_globs()` is the one call the GUI needs. Loading is
+  forgiving by design (see below).
+- `sonarex/search.py` — `SearchRunner`, a `QProcess` wrapper that streams
+  ugrep's hits back as `matchFound(path)` signals. `build_argv()` owns the
+  command line.
+- `sonarex/window.py` — `MainWindow`: the two rows, the splitter, the status
+  label, and the end-of-search sort.
+- `sonarex/viewer.py` — `read_for_preview()`: size cap, binary sniff, decode.
+  Always returns a string, never raises.
+
+## Things that will bite you
+
+- **ugrep's exit codes are 0 / 1 / 2**, and `1` means *no match*, not failure.
+  Treating anything non-zero as an error reports an empty search as broken.
+  Verified against ugrep 7.5.0.
+- **Result ordering is done in Python, not by ugrep.** ugrep's
+  `--sort=rchanged` sorts only *within* each directory and emits
+  subdirectories after files, so it never produces a tree-wide newest-first
+  list. `MainWindow._sort_by_mtime()` re-sorts once, on completion — it cannot
+  happen during streaming, because the newest file may be the last one found.
+  Files that vanished mid-search are dropped; any other failure leaves
+  ugrep's ordering intact. Cost is ~0.9s at 43k rows, which is a single hitch
+  at the end of a large search.
+- **`--` before the query is load-bearing.** Without it a query starting with
+  `-` (`-l`, say) is parsed as an option. The folder is passed absolute so
+  every path ugrep prints is absolute.
+- **`--filter` runs without a shell.** ugrep executes a filter command
+  directly, so `PDF_FILTER` can contain no pipes or redirection — hence
+  `pdftotext -q % -` rather than a shell one-liner. The PDF path is written
+  against documented behavior and has **not** been exercised; treat it as
+  unverified.
+- **Config loading must never raise.** A missing file, bad YAML, or a key of
+  the wrong type all degrade to "no patterns" so a typo means an unfiltered
+  search rather than an app that won't search. Keep that property.
+- **`SearchRunner.stop()` disconnects before killing.** A superseded process
+  must not deliver a late `finished` into the search that replaced it; this
+  is what keeps rapid Search presses from interleaving two result sets.
+- **`_read_stdout` splits on `"\n"`, not `splitlines()`.** `splitlines()` also
+  breaks on `\v`, `\f` and `\x85`, all legal in a filename, which would invent
+  paths that don't exist.
+- **`pkill -f "python -m sonarex"` matches its own shell.** It will kill your
+  own session. Use `pkill -f "[p]ython -m sonarex"`.
+
+## Testing
+
+There is no test suite in the repo. Drive the real window from a script
+instead — `MainWindow` is directly constructible, and `QEventLoop` + the
+`SearchRunner.finished` signal is enough to await a search:
+
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=/mnt/projects/sonarex uv run python yourtest.py
+```
+
+`QT_QPA_PLATFORM=offscreen` runs headless; `win.grab().save(path)` renders the
+window to a PNG when you want to see the layout. Note that a `QMessageBox`
+still blocks for a click under `offscreen`, so the startup-error paths can't
+be driven that way — assert on `ugrep_available()` instead.
+
+Syntax checks:
+
+```bash
+python3 -m py_compile sonarex/*.py
+bash -n start.sh install.sh uninstall.sh
+```
+
+Worth covering when you change search or results handling: exclusions from
+the config, an `included:` whitelist, a query starting with `-`, a folder with
+spaces in its name, no matches, a bad regex, a binary file, a file over the
+2 MiB preview cap, and repeated Search presses mid-search.
+
+## Not built yet
+
+- The include/exclude **configuration dialog**. The config file is read, but
+  editing means opening the YAML by hand. Everything in `config.py` is shaped
+  so that dialog only has to write the same two lists back.
+- Editing, syntax highlighting, markdown rendering — the preview pane is
+  read-only plain text on purpose.
+- Single-instance / tabbed behavior.
+
+## Working in this repo
+
+* Do not commit changes to the 'git' repository, or offer to. Only the Human
+  developer will do commits.

@@ -1,172 +1,94 @@
-# SonarEx Configuration
+# SonarEx configuration
 
-SonarEx uses a YAML configuration file located at `~/.config/sonarex/sonarex-config.yaml`.
+SonarEx reads one file:
 
-## Configuration Options
-
-### Search Inclusions
-
-You can limit searches to specific file types using glob patterns. If the `included` list is empty or omitted, all files are searched (subject to exclusions).
-
-```yaml
-search:
-  included:
-    - "*.md"      # Only search Markdown files
-    - "*.txt"     # And text files
+```
+~/.config/sonarex/sonarex-config.yaml
 ```
 
-**Note:** When include patterns are specified, only files matching these patterns will be searched.
+It is created with defaults the first time SonarEx runs, and it holds exactly
+two settings — the glob patterns that scope every search.
 
-#### Common Include Patterns
+There is no settings dialog yet, so edit this file by hand. A configuration
+dialog that writes these same two lists is planned.
 
-**Documentation:**
-- `*.md` - Markdown files
-- `*.txt` - Plain text files
-- `*.rst` - ReStructuredText files
-
-**Code:**
-- `*.py` - Python files
-- `*.js` - JavaScript files
-- `*.ts` - TypeScript files
-- `*.java` - Java files
-- `*.cpp` - C++ files
-- `*.h` - Header files
-
-**Leave empty to search all files:**
-```yaml
-search:
-  included: []   # Search all file types
-```
-
-### Search Exclusions
-
-You can exclude specific directories and files from search results using glob patterns.
+## The file
 
 ```yaml
 search:
+  # Files to search. An EMPTY list means "search everything" (the default).
+  included: []
+
+  # Directories and files to skip.
   excluded:
-    - "*/node_modules/*"    # Exclude all node_modules directories
-    - "*/.git/*"            # Exclude .git directories
-    - "*/.venv/*"           # Exclude Python virtual environments
-    - "*/__pycache__/*"     # Exclude Python cache directories
+    - "*/node_modules/*"
+    - "*/.git/*"
+    - "*/.venv/*"
+    - "*/__pycache__/*"
+    - "*/venv/*"
+    - "*/.svn/*"
+    - "*/.hg/*"
+    - "*/build/*"
+    - "*/dist/*"
+    - "*/.next/*"
+    - "*/.nuxt/*"
 ```
 
-#### How Exclusions Work
+Changes take effect on the next search — there is no need to restart SonarEx.
 
-- Exclusions use **glob patterns**, which SonarEx converts into `ugrep -g` exclusion globs
-- The `*` wildcard matches any characters
-- Patterns are matched against the full path
-- Excluded directories are pruned from the search (not descended into)
-- Press `Alt-g` inside the search TUI to view or edit the active globs for that session
+## `search.included`
 
-#### Common Patterns to Exclude
+A **whitelist**. Empty (the default) means every file is searched.
 
-**JavaScript/Node.js:**
-- `*/node_modules/*` - npm packages
-- "*/.next/*" - Next.js build output
-- `*/.nuxt/*` - Nuxt.js build output
-- `*/dist/*` - Distribution/build output
-- `*/build/*` - Build artifacts
-
-**Python:**
-- `*/.venv/*` - Virtual environments
-- `*/venv/*` - Alternative venv naming
-- `*/__pycache__/*` - Compiled bytecode
-- `*/.pytest_cache/*` - Pytest cache
-- `*.egg-info/*` - Package metadata
-
-**Version Control:**
-- `*/.git/*` - Git repository data
-- `*/.svn/*` - Subversion data
-- `*/.hg/*` - Mercurial data
-
-**IDEs:**
-- `*/.vscode/*` - VS Code settings
-- `*/.idea/*` - JetBrains IDE settings
-- `*/.eclipse/*` - Eclipse settings
-
-**Other:**
-- `*/target/*` - Java/Maven build output
-- `*/bin/*` - Compiled binaries
-- `*/obj/*` - Object files (.NET, C++)
-- `*/.cache/*` - Cache directories
-
-#### Adding Your Own Exclusions
-
-Edit `~/.config/sonarex/sonarex-config.yaml` and add patterns to the `excluded` list:
+The moment you add an entry, only files matching one of these patterns are
+searched and *everything else is silently ignored* — which is the one setting
+here that can quietly hide results you expected to see. Leave it empty unless
+you specifically want to search a narrow set of file types.
 
 ```yaml
 search:
   included:
     - "*.md"
     - "*.txt"
-  
-  excluded:
-    - "*/node_modules/*"
-    - "*/.git/*"
-    - "*/my_custom_dir/*"      # Add your custom exclusion here
-    - "*/temp/*"               # Exclude temporary directories
-    - "*/.backup/*"            # Exclude backup directories
+    - "*.py"
 ```
 
-Changes take effect immediately on the next search - no need to restart Nautilus.
+Patterns are matched against the filename, so `*.md` means "any Markdown file
+at any depth".
 
-### Using Include and Exclude Patterns Together
+## `search.excluded`
 
-Include and exclude patterns work together to give you fine-grained control over what gets searched:
+Directories and files to skip. Written in `find -path` style; SonarEx
+translates them into ugrep's glob syntax:
 
-1. **Exclusions are applied first** - Directories matching exclude patterns are skipped entirely
-2. **Inclusions filter the remaining files** - Only files matching include patterns are searched
+| You write | SonarEx passes to ugrep | Meaning |
+|---|---|---|
+| `*/node_modules/*` | `!node_modules/` | skip any directory named `node_modules`, at any depth |
+| `*/src/generated/*` | `!**/src/generated/**` | skip that nested path |
+| `*.log` | `!*.log` | skip files by name |
 
-**Example: Search only Python files, excluding virtual environments:**
-```yaml
-search:
-  included:
-    - "*.py"           # Only search Python files
-  
-  excluded:
-    - "*/.venv/*"      # Skip virtual environment directories
-    - "*/__pycache__/*"  # Skip cache directories
-```
+The common case is the first row: `*/NAME/*` excludes a directory called
+`NAME` wherever it appears in the tree.
 
-**Example: Search documentation only:**
-```yaml
-search:
-  included:
-    - "*.md"
-    - "*.txt"
-    - "*.rst"
-  
-  excluded:
-    - "*/node_modules/*"
-    - "*/.git/*"
-```
+Exclusions are worth keeping generous. Skipping `node_modules`, `.git` and
+build output is usually the difference between a search that returns in a
+second and one that grinds through a hundred thousand irrelevant files.
 
-**Example: Search everything (default behavior):**
-```yaml
-search:
-  included: []         # Empty or omit to search all file types
-  
-  excluded:
-    - "*/node_modules/*"
-    - "*/.git/*"
-```
+## When the config is missing or broken
 
-## Default Configuration
+Every failure degrades to "no patterns", never to an error:
 
-When you first run `./setup.sh`, a default configuration file is created with sensible exclusions for common development directories. You can customize it to match your workflow.
+- **File missing** — recreated with the defaults above on the next run.
+- **Malformed YAML** — reported on stdout, and the search runs unfiltered.
+- **A key holding the wrong type** (say `included: "*.md"` instead of a list)
+  — that key is ignored; the other still applies.
+- **Non-string entries** in a list — dropped individually.
 
-## Troubleshooting
+A search never fails because of a typo in this file. If results look wrong,
+check the file for a mistake rather than assuming the search broke.
 
-**Config file not found:**
-- Run `./setup.sh` to create the default config
-- Or manually create `~/.config/sonarex/sonarex-config.yaml`
+## What is *not* configurable
 
-**Exclusions not working:**
-- Check the config file syntax (YAML is indentation-sensitive)
-- Verify glob patterns match your directory structure
-- Check terminal output during search for any error messages
-
-**Python YAML library not available:**
-- Install it: `sudo apt install python3-yaml`
-- Or run `./setup.sh` which installs it automatically
+Case-insensitivity, Boolean query mode, whole-file matching, and the PDF
+filter are fixed. They are the behavior described in the
+[README](../README.md#query-syntax) and are not read from this file.
