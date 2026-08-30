@@ -28,8 +28,8 @@ folder row stays editable, with a **…** button for picking one.
 and refreshes the virtualenv from `pyproject.toml` on every run — there is no
 install step and nothing to activate.
 
-`./install.sh` adds a desktop entry so SonarEx shows up in your application
-launcher; `./uninstall.sh` removes it.
+`./install.sh` adds a desktop entry and its icon so SonarEx shows up in your
+application launcher; `./uninstall.sh` removes both.
 
 ## The window
 

@@ -83,6 +83,27 @@ the query only ever comes from the window.
 - **`pkill -f "python -m sonarex"` matches its own shell.** It will kill your
   own session. Use `pkill -f "[p]ython -m sonarex"`.
 
+## The icon
+
+`sonar-icon.jpeg` is the source artwork: a 1024x1024 render of a rounded-square
+icon on a dark backdrop. The installable PNGs under `icons/hicolor/` are
+generated from it by `icons/make-icons.py`, which crops away the backdrop and
+masks the corners to transparent so the icon is not a dark tile on a light
+panel. Two constants in that script (`CROP`, `RADIUS`) were measured off the
+current render and are wrong for any other artwork.
+
+The PNGs are **checked in** rather than converted at install time, which is the
+only reason `install.sh` needs neither Pillow nor ImageMagick. Regenerate them
+by hand when the artwork changes:
+
+```bash
+uv run --with pillow icons/make-icons.py
+```
+
+`Icon=sonarex` in `sonarex.desktop` is a theme name, not a path, so the PNGs
+have to be copied into `~/.local/share/icons/hicolor/` for it to resolve — an
+absolute path there would work too, but only at one size.
+
 ## Testing
 
 There is no test suite in the repo. Drive the real window from a script
@@ -115,8 +136,6 @@ spaces in its name, no matches, a bad regex, a binary file, a file over the
 - The include/exclude **configuration dialog**. The config file is read, but
   editing means opening the YAML by hand. Everything in `config.py` is shaped
   so that dialog only has to write the same two lists back.
-- Editing, syntax highlighting, markdown rendering — the preview pane is
-  read-only plain text on purpose.
 - Single-instance / tabbed behavior.
 
 ## Working in this repo

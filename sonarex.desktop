@@ -2,7 +2,7 @@
 Name=SonarEx
 Comment=Search file contents recursively under a folder
 Exec=/mnt/projects/sonarex/start.sh
-Icon=system-search
+Icon=sonarex
 Terminal=false
 Type=Application
 Categories=Utility;
