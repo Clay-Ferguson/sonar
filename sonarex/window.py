@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
@@ -313,15 +314,29 @@ class MainWindow(QWidget):
         splitter.setSizes([SPLIT_LIST * 100, SPLIT_PREVIEW * 100])
         layout.addWidget(splitter, 1)
 
-        # --- status ------------------------------------------------------
-        # There is no terminal behind this app any more, so everything a
-        # search has to say — progress, "no matches", ugrep's own errors —
-        # has to land somewhere visible.
-        self.status = QLabel("")
-        self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self.status)
-
         self.query_edit.setFocus()
+
+    # -- reporting ----------------------------------------------------------
+
+    def _set_title(self, note: str = "") -> None:
+        """Put `note` in the title bar, or clear it back to the app name.
+
+        With no status bar, the title is where a search says how it is going.
+        It costs no layout space, and it is the one piece of window furniture
+        that is always visible — including when SonarEx is a background window
+        someone is glancing at from another app.
+        """
+        self.setWindowTitle(f"{APP_NAME} — {note}" if note else APP_NAME)
+
+    def _report_problem(self, message: str) -> None:
+        """Show something that actually went wrong.
+
+        A dialog rather than a quiet line somewhere: these are rare, they
+        follow an explicit action the user just took, and the two that matter
+        most — a rejected regex and a missing editor — are long enough that a
+        truncated title would hide the part that says what to fix.
+        """
+        QMessageBox.warning(self, f"{APP_NAME}", message)
 
     # -- actions -----------------------------------------------------------
 
@@ -339,13 +354,14 @@ class MainWindow(QWidget):
     def start_search(self) -> None:
         query = self.query_edit.text().strip()
         if not query:
-            self.status.setText("Type something to search for.")
+            # Nothing to report: an empty query field is its own explanation,
+            # so this just puts the cursor where the user needs to type.
             self.query_edit.setFocus()
             return
 
         folder = self._folder()
         if not os.path.isdir(folder):
-            self.status.setText(f"Not a folder: {folder}")
+            self._report_problem(f"Not a folder:\n\n{folder}")
             return
 
         self.results.clear()
@@ -355,7 +371,7 @@ class MainWindow(QWidget):
         # ugrep is given, so every path it prints is genuinely underneath it
         # and `_display_path` can rely on the prefix matching.
         self._search_root = folder
-        self.status.setText(f"Searching {folder}…")
+        self._set_title("Searching…")
         self._runner.start(query, folder)
 
     # -- rows ---------------------------------------------------------------
@@ -407,28 +423,25 @@ class MainWindow(QWidget):
         self._match_count += 1
         # Cheap enough to do per hit, and it is the only sign the search is
         # still making progress on a long run.
-        self.status.setText(f"Searching… {self._match_count} files")
+        self._set_title(f"Searching… {self._match_count} files")
 
     def _on_search_finished(self, exit_code: int, stderr: str) -> None:
         if exit_code == EXIT_NO_MATCH:
-            self.status.setText("No matches.")
+            self._set_title("No matches")
             return
         if exit_code != EXIT_MATCHED:
             message = stderr.strip() or f"ugrep exited with status {exit_code}."
-            # One line: a multi-line ugrep error would resize the status label
-            # and push the splitter around.
-            self.status.setText(message.replace("\n", "  "))
-            self.status.setToolTip(message)
+            self._set_title()
+            self._report_problem(message)
             return
 
-        self.status.setToolTip("")
         self._sort_by_mtime()
-        # The root is named here because the rows no longer carry it, and the
-        # folder row above is not proof of it — that field stays editable once
-        # a search has finished.
-        self.status.setText(
+        # The root is named because the rows no longer carry it, and the folder
+        # row above is not proof of it — that field stays editable once a
+        # search has finished.
+        self._set_title(
             f"{self._match_count} file{'' if self._match_count == 1 else 's'}"
-            f" in {self._search_root} — newest first"
+            f" in {self._search_root}"
         )
 
     def _sort_by_mtime(self) -> None:
@@ -510,8 +523,7 @@ class MainWindow(QWidget):
             return
         error = open_in_editor(item.data(PATH_ROLE))
         if error:
-            self.status.setText(error.replace("\n", "  "))
-            self.status.setToolTip(error)
+            self._report_problem(error)
 
     def _on_selection_changed(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
