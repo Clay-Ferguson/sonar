@@ -54,10 +54,14 @@ the query only ever comes from the window.
   ~16ms at the preview's size cap, so it does not need a `QProcess` — and it
   answers `{}` rather than raising on any failure.
 - `sonarex/highlight.py` — `MatchHighlighter`, the `QSyntaxHighlighter` that
-  paints those spans onto the preview. It knows nothing about the query; it
-  only colors the ranges `match_spans()` hands it.
+  paints those spans onto the preview, one of them in a hotter color as the
+  current match. It knows nothing about the query; it only colors the ranges
+  `match_spans()` hands it, and `set_current()` says which one is parked on.
 - `sonarex/window.py` — `MainWindow`: the two rows, the splitter, the status
-  label, and the end-of-search sort.
+  label, and the end-of-search sort. Also the Prev/Next walk: `_adopt_matches()`
+  flattens the spans into reading order on `self._matches`, and
+  `_go_to_match()` is the single place that moves `self._match_index`, marks
+  the highlighter, scrolls, and refreshes the counter.
 - `sonarex/style.py` — the shared look: `action_button_style()`, the wider
   scroll bars, `tune_palette()`, `mono_font()`. It exists so a dialog can
   match the window's controls without importing `window`, which opens the
@@ -113,7 +117,19 @@ the query only ever comes from the window.
 - **`MATCH_BG` and `MATCH_FG` have to be set together.** The amber is pinned
   rather than derived from the palette, so the text on it cannot be left to
   inherit the theme's foreground — on a dark theme that is near-white and
-  disappears against the highlight.
+  disappears against the highlight. `MATCH_CURRENT_BG` shares that same
+  foreground, which is the constraint on changing it: it has to stay light
+  enough to read near-black text on.
+- **`set_current()` repaints two lines, not the document.** Prev/Next changes
+  which match is hot, and the obvious `rehighlight()` is a pass over every
+  block on every click — a visible stall on a long file. Only the line losing
+  the mark and the line gaining it need it, which is why the current match is
+  tracked as a (line, column) pair: the line is what has to be found again.
+  Measured at 0.1ms per click on a file with 100k matches.
+- **The nav state has to be reset wherever the preview is cleared.** There are
+  two such places — a selection going to None, and `start_search` — and both
+  route through `_adopt_matches({})`. Leaving them out leaves Prev and Next
+  live over a document whose matches are gone.
 - **The Open command runs without a shell either**, for the same reason the
   ugrep filter does: `subprocess.Popen` gets an argv list, split by `shlex`.
   Quotes and spaces in a program path work; pipes, redirection and `&&` do
@@ -219,6 +235,14 @@ multi-byte characters ahead of the match, a notice (binary or over-cap, which
 must highlight nothing), and a file whose first match is thousands of lines
 down — the pane should scroll to it rather than sit at the top.
 
+For Prev/Next, note that the *current* match is painted `MATCH_CURRENT_BG`
+rather than `MATCH_BG`, so a check that collects only the latter will miss it
+and read as a lost match. Collect both when asking "what did ugrep find", and
+only `MATCH_CURRENT_BG` when asking "which one is it parked on". Worth
+covering: a line carrying two hits (two stops, not one), wrapping off either
+end, that switching files restarts the count, and that a notice or a fresh
+search leaves the buttons dim and the counter blank.
+
 The settings dialog is drivable the same way — `SettingsDialog()` constructs
 without the main window, and `_save()` can be called directly instead of
 clicking. Point `config.CONFIG_PATH` at a temp file first: it is read at call
@@ -230,10 +254,11 @@ touches the real `~/.config`.
 - Further settings. The dialog is built to grow — another `_add_patterns()` or
   `_add_line()` call and it re-sizes itself — and `render_config()` carries
   unknown keys through, so an option can be added on either side first.
-- Stepping through matches. The preview scrolls to the first one and stops
-  there; next/previous would need the spans kept on the window and an index
-  cursor, which is why `_show_first_match` takes the spans as an argument
-  rather than reading them back off the highlighter.
+- Keyboard shortcuts for Prev/Next. The buttons are the only way to step; F3
+  and Shift+F3 would be a `QShortcut` each onto `_step_match`, which already
+  takes the direction as its argument.
+- Stepping between *files* from the preview. Prev/Next stop at the ends of the
+  current file and wrap rather than rolling into the next result.
 - Single-instance / tabbed behavior.
 
 ## Working in this repo

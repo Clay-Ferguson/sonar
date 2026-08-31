@@ -38,6 +38,7 @@ from .style import (
     SPLITTER_HANDLE_WIDTH,
     HELP_BUTTON_BG,
     ICON_BUTTON_RATIO,
+    NAV_BUTTON_BG,
     SEARCH_BUTTON_BG,
     SEARCH_BUTTON_PADDING,
     action_button_style,
@@ -80,6 +81,12 @@ class MainWindow(QWidget):
         # highlighting in the preview must keep meaning the search that found
         # these files rather than whatever has since been typed over it.
         self._search_query = ""
+        # The current file's matches, flattened out of the spans dict and put in
+        # reading order, plus where Prev/Next is parked in that list. A flat
+        # list rather than the dict because stepping is what it is for: the dict
+        # is keyed for painting a line, this is ordered for walking the file.
+        self._matches: list[tuple[int, int, int]] = []
+        self._match_index = -1
 
         layout = QVBoxLayout(self)
 
@@ -215,6 +222,21 @@ class MainWindow(QWidget):
         self.open_button.setEnabled(False)
         self.open_button.clicked.connect(self._open_selected)
 
+        # Prev/Next step between individual matches rather than between lines:
+        # the spans are exact, so a line carrying three hits is three stops.
+        # Both wrap around, which is what makes them usable without also
+        # having to watch the counter to know when to stop.
+        self.prev_button = self._nav_button("Prev", "Go to the previous match")
+        self.prev_button.clicked.connect(lambda: self._step_match(-1))
+        self.next_button = self._nav_button("Next", "Go to the next match")
+        self.next_button.clicked.connect(lambda: self._step_match(1))
+
+        # Says which match of how many, because the highlight alone cannot:
+        # every match looks the same until one of them is the current one, and
+        # off screen even that is invisible.
+        self.match_label = QLabel()
+        self.match_label.setToolTip("The current match, and how many this file has")
+
         self.wrap_check = QCheckBox("Word Wrap")
         enlarge_checkbox(self.wrap_check)
         self.wrap_check.setChecked(True)  # matches the pane's initial mode
@@ -223,6 +245,9 @@ class MainWindow(QWidget):
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(PANE_GAP, 0, 0, 0)
         control_bar.addWidget(self.open_button)
+        control_bar.addWidget(self.prev_button)
+        control_bar.addWidget(self.next_button)
+        control_bar.addWidget(self.match_label)
         control_bar.addStretch(1)
         control_bar.addWidget(self.wrap_check)
 
@@ -464,6 +489,17 @@ class MainWindow(QWidget):
         if error:
             self._report_problem(error)
 
+    def _nav_button(self, text: str, tip: str) -> QPushButton:
+        """One of the two match-stepping buttons, styled alike."""
+        button = QPushButton(text)
+        button.setStyleSheet(action_button_style(NAV_BUTTON_BG, CONTROL_BAR_PADDING))
+        button.setToolTip(tip)
+        button.setAutoDefault(False)
+        # Disabled until a file with matches is on screen, for the same reason
+        # Open is: a button that silently does nothing is worse than a dim one.
+        button.setEnabled(False)
+        return button
+
     def _on_selection_changed(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
     ) -> None:
@@ -476,6 +512,11 @@ class MainWindow(QWidget):
         self.open_button.setEnabled(current is not None)
         if current is None:
             self.preview.clear()
+            # Clearing the pane has to clear what the pane was about, or Prev
+            # and Next stay live over a document that no longer has the matches
+            # they would step to.
+            self._highlighter.set_spans({})
+            self._adopt_matches({})
             return
         path = current.data(PATH_ROLE)
         text, is_notice = read_for_preview(path)
@@ -493,27 +534,61 @@ class MainWindow(QWidget):
         # are painted by that pass instead of needing a second one.
         self._highlighter.set_spans(spans)
         self.preview.setPlainText(text)
-        self._show_first_match(spans)
+        self._adopt_matches(spans)
 
-    def _show_first_match(self, spans: dict[int, list[tuple[int, int]]]) -> None:
-        """Scroll the preview to the first match, or to the top if there is none.
+    # -- stepping through the matches --------------------------------------
 
-        Either way it scrolls somewhere deliberate: long searches otherwise
-        leave the preview wherever the last file was left.
+    def _adopt_matches(self, spans: dict[int, list[tuple[int, int]]]) -> None:
+        """Take on a new file's matches and go to the first one.
+
+        Flattens the spans into reading order — the dict is keyed by line for
+        painting, which says nothing about what follows what — and lands on
+        match 1. With none, the preview goes to the top instead: long searches
+        otherwise leave it scrolled wherever the last file was left.
         """
-        if spans:
-            line = min(spans)
-            block = self.preview.document().findBlockByNumber(line)
-            if block.isValid():
-                cursor = QTextCursor(block)
-                cursor.setPosition(block.position() + min(spans[line])[0] - 1)
-                self.preview.setTextCursor(cursor)
-                # centerCursor rather than ensureCursorVisible: a match one line
-                # from the top of the viewport is technically visible and still
-                # reads as "it scrolled to the top and I got lucky".
-                self.preview.centerCursor()
-                return
-        self.preview.moveCursor(self.preview.textCursor().MoveOperation.Start)
+        self._matches = sorted(
+            (line, column, length)
+            for line, spots in spans.items()
+            for column, length in spots
+        )
+        self._match_index = -1
+        if self._matches:
+            self._go_to_match(0)
+        else:
+            self._highlighter.set_current(None)
+            self._update_match_nav()
+            self.preview.moveCursor(self.preview.textCursor().MoveOperation.Start)
+
+    def _step_match(self, delta: int) -> None:
+        """Move `delta` matches from the current one, wrapping at either end."""
+        if self._matches:
+            self._go_to_match((self._match_index + delta) % len(self._matches))
+
+    def _go_to_match(self, index: int) -> None:
+        """Make match `index` current: mark it, scroll to it, and count it."""
+        self._match_index = index
+        line, column, _length = self._matches[index]
+        self._highlighter.set_current((line, column))
+        block = self.preview.document().findBlockByNumber(line)
+        if block.isValid():
+            cursor = QTextCursor(block)
+            cursor.setPosition(block.position() + column - 1)
+            self.preview.setTextCursor(cursor)
+            # centerCursor rather than ensureCursorVisible: a match one line
+            # from the edge of the viewport is technically visible and still
+            # reads as "it did not scroll and I got lucky".
+            self.preview.centerCursor()
+        self._update_match_nav()
+
+    def _update_match_nav(self) -> None:
+        """Sync the two buttons and the counter to the current match."""
+        total = len(self._matches)
+        self.prev_button.setEnabled(total > 0)
+        self.next_button.setEnabled(total > 0)
+        # Blank rather than "0 of 0" when there is nothing to step through: the
+        # dim buttons already say so, and a zeroed counter beside them reads as
+        # a file that lost its matches rather than one that never had any.
+        self.match_label.setText(f"{self._match_index + 1} of {total}" if total else "")
 
     # -- lifecycle ---------------------------------------------------------
 

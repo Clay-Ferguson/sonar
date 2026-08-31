@@ -40,6 +40,17 @@ SEARCH_BUTTON_PADDING = "8px 24px"
 MATCH_BG = "#ffe066"
 MATCH_FG = "#1a1a1a"
 
+# The one match Prev/Next is parked on. Warmer and deeper than MATCH_BG rather
+# than a different hue entirely: it has to read as "this one of those", not as
+# a second, unrelated kind of mark. MATCH_FG stays legible on it, which is why
+# the current match needs no foreground of its own.
+MATCH_CURRENT_BG = "#ff9e3d"
+
+# Prev/Next. A muted steel blue, sitting at the same low saturation as the
+# green Search button so the two do not compete: these step through what a
+# search already found, they do not start one.
+NAV_BUTTON_BG = "#41648c"
+
 # The Open button is tinted with the selection color instead of a constant of
 # its own: it acts on the row highlighted in the results list, and sharing that
 # color is what says so. Read from the palette rather than pinned to Yaru's

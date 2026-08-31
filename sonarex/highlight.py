@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from PyQt6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat, QTextDocument
 
-from .style import MATCH_BG, MATCH_FG
+from .style import MATCH_BG, MATCH_CURRENT_BG, MATCH_FG
 
 
 class MatchHighlighter(QSyntaxHighlighter):
@@ -24,11 +24,18 @@ class MatchHighlighter(QSyntaxHighlighter):
     def __init__(self, document: QTextDocument) -> None:
         super().__init__(document)
         self._spans: dict[int, list[tuple[int, int]]] = {}
+        # The one match Prev/Next is parked on, as (line, column) — the same
+        # pair the spans are keyed and ordered by, so identifying it is a
+        # comparison rather than a search. None means nothing is current yet.
+        self._current: tuple[int, int] | None = None
         # Built once rather than per block: highlightBlock runs for every line
         # of the document, and a QTextCharFormat per line is pure waste.
         self._format = QTextCharFormat()
         self._format.setBackground(QColor(MATCH_BG))
         self._format.setForeground(QColor(MATCH_FG))
+        self._current_format = QTextCharFormat()
+        self._current_format.setBackground(QColor(MATCH_CURRENT_BG))
+        self._current_format.setForeground(QColor(MATCH_FG))
 
     def set_spans(self, spans: dict[int, list[tuple[int, int]]]) -> None:
         """Adopt `spans` — 0-based line -> [(1-based column, length)].
@@ -39,11 +46,36 @@ class MatchHighlighter(QSyntaxHighlighter):
         a document that can be 44k lines long.
         """
         self._spans = spans
+        self._current = None
+
+    def set_current(self, spot: tuple[int, int] | None) -> None:
+        """Mark the match at `spot` — a (line, column) pair — as the current one.
+
+        Repaints the two lines that can have changed rather than the document:
+        the one losing the mark and the one gaining it. A full `rehighlight()`
+        here would be a pass over every block each time Prev or Next is
+        clicked, which on a long file is a visible stall on a button press.
+        """
+        if spot == self._current:
+            return
+        previous, self._current = self._current, spot
+        document = self.document()
+        for line in {spot[0] for spot in (previous, self._current) if spot}:
+            block = document.findBlockByNumber(line)
+            if block.isValid():
+                self.rehighlightBlock(block)
 
     def highlightBlock(self, text: str) -> None:
         """Paint one line. Called by Qt, once per block, as blocks are laid out."""
-        for column, length in self._spans.get(self.currentBlock().blockNumber(), ()):
+        line = self.currentBlock().blockNumber()
+        for column, length in self._spans.get(line, ()):
             # setFormat clips to the block, so a match that ugrep reports as
             # spanning lines — only reachable through a multi-line regex term —
             # colors its first line instead of bleeding into the next one.
-            self.setFormat(column - 1, length, self._format)
+            self.setFormat(
+                column - 1,
+                length,
+                self._current_format
+                if self._current == (line, column)
+                else self._format,
+            )
