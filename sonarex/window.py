@@ -32,13 +32,18 @@ from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner
 from .settings import settings_icon, show_settings
 from .style import (
     CONTROL_BAR_PADDING,
+    PANE_GAP,
+    SPLITTER_HANDLE_WIDTH,
     HELP_BUTTON_BG,
     ICON_BUTTON_RATIO,
     SEARCH_BUTTON_BG,
     SEARCH_BUTTON_PADDING,
     action_button_style,
     apply_scrollbars,
+    enlarge_checkbox,
     mono_font,
+    selection_button_bg,
+    splitter_style,
 )
 from .viewer import open_in_editor, read_for_preview
 
@@ -175,6 +180,15 @@ class MainWindow(QWidget):
         self.preview.setReadOnly(True)
         self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.preview.setFont(mono_font())
+        # The gutter, taken out of the document rather than the widget. A
+        # viewport margin looks like the same thing and is not: that strip is
+        # outside the viewport and gets painted in the window color, so it
+        # comes out as a gray band beside the divider instead of a gutter.
+        # The document's own margin is inside the text area, on its Base
+        # background — which is what makes it read as part of the pane. It
+        # applies to all four sides; the left is the one being asked for and
+        # the rest is breathing room the preview was short of anyway.
+        self.preview.document().setDocumentMargin(PANE_GAP)
 
         # --- the preview's own control bar -------------------------------
         # Sits inside the right-hand pane rather than under the whole window,
@@ -182,7 +196,7 @@ class MainWindow(QWidget):
         # dragging the splitter moves it with the pane it controls.
         self.open_button = QPushButton("Open")
         self.open_button.setStyleSheet(
-            action_button_style(HELP_BUTTON_BG, CONTROL_BAR_PADDING)
+            action_button_style(selection_button_bg(), CONTROL_BAR_PADDING)
         )
         self.open_button.setToolTip("Open this file in the editor")
         self.open_button.setAutoDefault(False)
@@ -192,11 +206,12 @@ class MainWindow(QWidget):
         self.open_button.clicked.connect(self._open_selected)
 
         self.wrap_check = QCheckBox("Word Wrap")
+        enlarge_checkbox(self.wrap_check)
         self.wrap_check.setChecked(True)  # matches the pane's initial mode
         self.wrap_check.toggled.connect(self._set_word_wrap)
 
         control_bar = QHBoxLayout()
-        control_bar.setContentsMargins(0, 0, 0, 0)
+        control_bar.setContentsMargins(PANE_GAP, 0, 0, 0)
         control_bar.addWidget(self.open_button)
         control_bar.addStretch(1)
         control_bar.addWidget(self.wrap_check)
@@ -205,7 +220,9 @@ class MainWindow(QWidget):
         right_layout = QVBoxLayout(right_panel)
         # Flush with the splitter edge: the panel is a container, not a frame
         # of its own, and default margins would inset the preview from the
-        # results list beside it.
+        # results list beside it. The gutter that keeps the contents off the
+        # divider is inside the preview and the control bar instead, so it is
+        # drawn in their own background rather than the window's.
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.preview, 1)
         right_layout.addLayout(control_bar)
@@ -216,6 +233,8 @@ class MainWindow(QWidget):
             apply_scrollbars(area)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
+        splitter.setStyleSheet(splitter_style())
         splitter.addWidget(self.results)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, SPLIT_LIST)

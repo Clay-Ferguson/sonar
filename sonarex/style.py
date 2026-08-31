@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette
-from PyQt6.QtWidgets import QApplication, QPushButton, QStyle
+from PyQt6.QtWidgets import QApplication, QCheckBox, QProxyStyle, QPushButton, QStyle
 
 from . import UI_POINT_SIZE
 
@@ -32,6 +32,17 @@ HELP_BUTTON_BG = "#5a5a5a"
 BUTTON_FG = "#f0f2ef"
 SEARCH_BUTTON_PADDING = "8px 24px"
 
+# The Open button is tinted with the selection color instead of a constant of
+# its own: it acts on the row highlighted in the results list, and sharing that
+# color is what says so. Read from the palette rather than pinned to Yaru's
+# orange so it keeps matching the list on any theme.
+#
+# Below this lightness the light BUTTON_FG still reads on it; a pale highlight
+# is darkened until it does, which costs the exact match but keeps the label
+# legible — a theme whose highlight is nearly white would otherwise give a
+# button with invisible text.
+MAX_SELECTION_LIGHTNESS = 150
+
 # The widest label on a primary button, and so the one that sets the size the
 # others are matched to. Kept here rather than read off the live button: the
 # dialogs need the measurement before (and without) the main window.
@@ -46,6 +57,22 @@ ICON_BUTTON_RATIO = 0.68
 # button is padded more modestly than the Search button.
 CONTROL_BAR_PADDING = "5px 16px"
 
+# The gutter down the left of the preview pane, in pixels: how far the file
+# text and the Open button under it are held off the divider. It is a gutter
+# rather than a margin — the pane itself stays flush with the splitter and
+# the space is taken out of its inside, so it is the preview's own background
+# and not a stripe of window surface masquerading as a second border beside
+# the handle.
+PANE_GAP = 10
+
+# The grab area of the divider between the two panes. The desktop's own is a
+# few pixels of nearly the surrounding color: hard to see and harder to hit.
+SPLITTER_HANDLE_WIDTH = 10
+
+# How far the handle's color is moved away from the window surface behind it,
+# as a lighter()/darker() percentage.
+SPLITTER_CONTRAST = 150
+
 # Scroll bars are drawn at this multiple of the desktop's own thickness —
 # wider bars are easier to grab with the mouse.
 SCROLLBAR_SCALE = 2
@@ -53,6 +80,10 @@ SCROLLBAR_SCALE = 2
 # A floor for the doubling, in case a style reports an implausibly small
 # extent (or none at all) and the result would be a bar too thin to hit.
 MIN_SCROLLBAR_EXTENT = 12
+
+# How much bigger than the desktop's own a check box's indicator is drawn.
+# Same reasoning as the scroll bars: a bigger target is an easier one to hit.
+CHECKBOX_SCALE = 2
 
 
 def action_button_style(background: str, padding: str = "0px") -> str:
@@ -91,6 +122,21 @@ def action_button_style(background: str, padding: str = "0px") -> str:
     """
 
 
+def selection_button_bg() -> str:
+    """The results list's selection color, as a background for a button.
+
+    Darkened if the theme's highlight is too pale to carry light text; see
+    MAX_SELECTION_LIGHTNESS.
+    """
+    color = QApplication.palette().color(QPalette.ColorRole.Highlight)
+    while color.lightness() > MAX_SELECTION_LIGHTNESS:
+        darker = color.darker(115)
+        if darker.lightness() >= color.lightness():
+            break  # cannot move any further; take what we have
+        color = darker
+    return color.name()
+
+
 def action_button_size() -> QSize:
     """The size of the header's Search button, for other buttons to match.
 
@@ -117,6 +163,73 @@ def match_action_button(button: QPushButton) -> None:
     button.setFixedSize(
         max(reference.width(), button.sizeHint().width()), reference.height()
     )
+
+
+def splitter_style() -> str:
+    """Qt stylesheet for a wider, visible splitter handle.
+
+    The color is derived from the window surface rather than pinned, so the
+    handle tracks the theme — and `tune_palette()`'s lightened surface, which
+    is what the handle actually sits on. Which way it moves depends on where
+    there is room, exactly as the scroll-bar handle does: lighter on a dark
+    surface, darker on a light one, where lightening would only run into the
+    white of the panes and vanish again.
+
+    The width is set here *and* through `setHandleWidth()` in `window.py`:
+    the stylesheet paints the handle, but the splitter's own layout is what
+    reserves the space and decides where a drag starts.
+    """
+    window = QApplication.palette().color(QPalette.ColorRole.Window)
+    handle = (
+        window.lighter(SPLITTER_CONTRAST)
+        if window.lightness() < 128
+        else window.darker(SPLITTER_CONTRAST)
+    )
+    return f"""
+        QSplitter::handle:horizontal {{
+            background: {handle.name()};
+            width: {SPLITTER_HANDLE_WIDTH}px;
+        }}
+    """
+
+
+class _LargeIndicatorStyle(QProxyStyle):
+    """A style that reports check-box indicators at `CHECKBOX_SCALE` size.
+
+    The indicator is sized by the style, not by the font or the widget, so a
+    check box cannot simply be made bigger from the outside. A stylesheet can
+    set the indicator's width and height, but styling that sub-control at all
+    takes over its drawing, and the check mark — which no stylesheet can draw
+    without shipping an image — goes with it, leaving a box that never looks
+    ticked. Overriding the pixel metric instead keeps the native rendering and
+    only changes the rectangle it is asked to fill.
+
+    Default-constructed on purpose: with no base style it proxies whatever
+    QApplication is using at the time, and, unlike the constructor that takes
+    a style, it does not take ownership of the application's shared one.
+    """
+
+    def pixelMetric(self, metric, option=None, widget=None):  # noqa: N802 (Qt)
+        size = super().pixelMetric(metric, option, widget)
+        if metric in (
+            QStyle.PixelMetric.PM_IndicatorWidth,
+            QStyle.PixelMetric.PM_IndicatorHeight,
+        ):
+            return size * CHECKBOX_SCALE
+        return size
+
+
+def enlarge_checkbox(box: QCheckBox) -> None:
+    """Draw `box`'s indicator larger, leaving its label at the normal size.
+
+    The proxy is parented to the check box rather than installed on the
+    application: it is one widget's affordance, not a change of theme. That
+    parenting is also what keeps the style alive — `setStyle()` does not take
+    ownership, and a style collected out from under a live widget crashes it.
+    """
+    style = _LargeIndicatorStyle()
+    style.setParent(box)
+    box.setStyle(style)
 
 
 def scrollbar_style() -> str:
