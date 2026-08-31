@@ -32,6 +32,14 @@ HELP_BUTTON_BG = "#5a5a5a"
 BUTTON_FG = "#f0f2ef"
 SEARCH_BUTTON_PADDING = "8px 24px"
 
+# Match highlighting in the preview. Both halves are pinned rather than derived
+# from the palette, and they have to be set together: the background has to stay
+# recognisably "highlighter yellow" in either theme, so the text on top of it
+# cannot inherit the theme's foreground — on a dark theme that is near-white and
+# would vanish against the amber.
+MATCH_BG = "#ffe066"
+MATCH_FG = "#1a1a1a"
+
 # The Open button is tinted with the selection color instead of a constant of
 # its own: it acts on the row highlighted in the results list, and sharing that
 # color is what says so. Read from the palette rather than pinned to Yaru's

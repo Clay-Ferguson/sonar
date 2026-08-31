@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -28,7 +29,8 @@ from PyQt6.QtWidgets import (
 
 from . import APP_NAME
 from .help import help_icon, show_help
-from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner
+from .highlight import MatchHighlighter
+from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner, match_spans
 from .settings import settings_icon, show_settings
 from .style import (
     CONTROL_BAR_PADDING,
@@ -73,6 +75,11 @@ class MainWindow(QWidget):
         # stays editable while results are on screen, and a row's path must
         # not shift meaning because someone typed in a field afterwards.
         self._search_root = ""
+        # Pinned for the same reason and at the same moment as the root: the
+        # query row stays editable while results are on screen, and the
+        # highlighting in the preview must keep meaning the search that found
+        # these files rather than whatever has since been typed over it.
+        self._search_query = ""
 
         layout = QVBoxLayout(self)
 
@@ -189,6 +196,9 @@ class MainWindow(QWidget):
         # applies to all four sides; the left is the one being asked for and
         # the rest is breathing room the preview was short of anyway.
         self.preview.document().setDocumentMargin(PANE_GAP)
+        # Attached once, to the document, and fed new spans per file. The
+        # document survives setPlainText, so this outlives every preview.
+        self._highlighter = MatchHighlighter(self.preview.document())
 
         # --- the preview's own control bar -------------------------------
         # Sits inside the right-hand pane rather than under the whole window,
@@ -299,6 +309,7 @@ class MainWindow(QWidget):
         # ugrep is given, so every path it prints is genuinely underneath it
         # and `_display_path` can rely on the prefix matching.
         self._search_root = folder
+        self._search_query = query
         self._set_title("Searching…")
         self._runner.start(query, folder)
 
@@ -466,9 +477,42 @@ class MainWindow(QWidget):
         if current is None:
             self.preview.clear()
             return
-        text, _is_notice = read_for_preview(current.data(PATH_ROLE))
+        path = current.data(PATH_ROLE)
+        text, is_notice = read_for_preview(path)
+        # A notice — binary, too large, unreadable — is this app's own words
+        # rather than the file, so there is nothing in it ugrep matched and its
+        # line numbers mean nothing. Asking ugrep about it would also be asking
+        # about a file that by definition cannot be shown.
+        spans = (
+            {}
+            if is_notice or not self._search_query
+            else match_spans(self._search_query, path)
+        )
+        # Before setPlainText, not after: replacing the text is itself what
+        # makes Qt run the highlighter over the document, so spans set first
+        # are painted by that pass instead of needing a second one.
+        self._highlighter.set_spans(spans)
         self.preview.setPlainText(text)
-        # Long searches leave the preview scrolled wherever the last file was.
+        self._show_first_match(spans)
+
+    def _show_first_match(self, spans: dict[int, list[tuple[int, int]]]) -> None:
+        """Scroll the preview to the first match, or to the top if there is none.
+
+        Either way it scrolls somewhere deliberate: long searches otherwise
+        leave the preview wherever the last file was left.
+        """
+        if spans:
+            line = min(spans)
+            block = self.preview.document().findBlockByNumber(line)
+            if block.isValid():
+                cursor = QTextCursor(block)
+                cursor.setPosition(block.position() + min(spans[line])[0] - 1)
+                self.preview.setTextCursor(cursor)
+                # centerCursor rather than ensureCursorVisible: a match one line
+                # from the top of the viewport is technically visible and still
+                # reads as "it scrolled to the top and I got lucky".
+                self.preview.centerCursor()
+                return
         self.preview.moveCursor(self.preview.textCursor().MoveOperation.Start)
 
     # -- lifecycle ---------------------------------------------------------

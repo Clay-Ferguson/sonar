@@ -48,7 +48,14 @@ the query only ever comes from the window.
   design (see below).
 - `sonarex/search.py` — `SearchRunner`, a `QProcess` wrapper that streams
   ugrep's hits back as `matchFound(path)` signals. `build_argv()` owns the
-  command line.
+  command line. Beside it, `build_match_argv()`/`match_spans()` are the
+  second, much smaller ugrep call: one named file, `-o -u`, and a `--format`
+  that reports where the query matched inside it. That one is synchronous —
+  ~16ms at the preview's size cap, so it does not need a `QProcess` — and it
+  answers `{}` rather than raising on any failure.
+- `sonarex/highlight.py` — `MatchHighlighter`, the `QSyntaxHighlighter` that
+  paints those spans onto the preview. It knows nothing about the query; it
+  only colors the ranges `match_spans()` hands it.
 - `sonarex/window.py` — `MainWindow`: the two rows, the splitter, the status
   label, and the end-of-search sort.
 - `sonarex/style.py` — the shared look: `action_button_style()`, the wider
@@ -82,6 +89,31 @@ the query only ever comes from the window.
 - **`--` before the query is load-bearing.** Without it a query starting with
   `-` (`-l`, say) is parsed as an option. The folder is passed absolute so
   every path ugrep prints is absolute.
+- **`-g` filters explicitly named file arguments too**, not just what recursion
+  turns up. This is why `build_match_argv()` omits `search_globs()`: with the
+  globs in place, ugrep returns nothing for the very file the search just
+  found, and the preview highlights nothing. Verified — adding `-g '!*.txt'`
+  to a re-run on a named `.txt` file exits 1.
+- **The highlight spans are line + column, deliberately, not byte offsets.**
+  `%b`/`%d` are available and both break here: Qt strips the `\r` from CRLF on
+  `setPlainText`, so byte offsets drift by one per preceding line, and
+  `read_for_preview` decodes UTF-8, so bytes need a character walk anyway.
+  ugrep's `%k` is already a *character* column (`ééé hello` reports 5, not 8),
+  and `%n` maps straight onto a text block. `%j` gives the match JSON-quoted,
+  so a match can never spill onto a second output line.
+- **Set the spans before `setPlainText`, not after.** Replacing the document's
+  text is itself what makes Qt run the highlighter over it, so spans set first
+  ride along with that pass; set afterwards they need an explicit
+  `rehighlight()`, which is a second full pass over what can be 44k lines.
+- **Highlighting is a `QSyntaxHighlighter`, not `setExtraSelections()`.** The
+  latter is the more obvious tool and is ~14x slower here, because it builds
+  every range up front rather than formatting blocks as they are laid out:
+  measured at the 2 MiB cap with 88k matches, 1.15s against ~80ms. That is the
+  only reason nothing caps the number of matches.
+- **`MATCH_BG` and `MATCH_FG` have to be set together.** The amber is pinned
+  rather than derived from the palette, so the text on it cannot be left to
+  inherit the theme's foreground — on a dark theme that is near-white and
+  disappears against the highlight.
 - **The Open command runs without a shell either**, for the same reason the
   ugrep filter does: `subprocess.Popen` gets an argv list, split by `shlex`.
   Quotes and spaces in a program path work; pipes, redirection and `&&` do
@@ -176,6 +208,17 @@ the config, an `included:` whitelist, a query starting with `-`, a folder with
 spaces in its name, no matches, a bad regex, a binary file, a file over the
 2 MiB preview cap, and repeated Search presses mid-search.
 
+For the preview highlighting, assert on the document rather than on pixels:
+walk the blocks, read `block.layout().formats()`, and collect the runs whose
+background is `MATCH_BG`. That gives the highlighted text back as strings, so a
+check reads as "these exact words are colored". Worth covering: an AND query
+whose terms are on different lines (both must be highlighted, `--files` scope),
+an `OR` query against a file matching only one branch, a `NOT`/`-` term (which
+must contribute *no* highlight), a quoted phrase, a CRLF file, a file with
+multi-byte characters ahead of the match, a notice (binary or over-cap, which
+must highlight nothing), and a file whose first match is thousands of lines
+down — the pane should scroll to it rather than sit at the top.
+
 The settings dialog is drivable the same way — `SettingsDialog()` constructs
 without the main window, and `_save()` can be called directly instead of
 clicking. Point `config.CONFIG_PATH` at a temp file first: it is read at call
@@ -187,6 +230,10 @@ touches the real `~/.config`.
 - Further settings. The dialog is built to grow — another `_add_patterns()` or
   `_add_line()` call and it re-sizes itself — and `render_config()` carries
   unknown keys through, so an option can be added on either side first.
+- Stepping through matches. The preview scrolls to the first one and stops
+  there; next/previous would need the spans kept on the window and an index
+  cursor, which is why `_show_first_match` takes the spans as an argument
+  rather than reading them back off the highlighter.
 - Single-instance / tabbed behavior.
 
 ## Working in this repo

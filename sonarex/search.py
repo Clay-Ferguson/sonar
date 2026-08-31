@@ -11,7 +11,9 @@ straightforward here.
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
 
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
@@ -62,6 +64,92 @@ def build_argv(query: str, folder: str) -> list[str]:
     argv.extend(search_globs())
     argv.extend(["--", query, folder])
     return argv
+
+
+# Line, column and the matched text, one match per output line. `%k` is a
+# *character* column, not a byte one, which is what makes it usable against a
+# QTextDocument directly; `%j` is JSON-quoted, so a match containing a newline
+# still cannot spill onto a second output line and invent a match.
+MATCH_FORMAT = "--format=%n %k %j%~"
+
+# Seconds. This call is synchronous, on the GUI thread, so it needs a ceiling:
+# the measured worst case at the preview's 2 MiB cap is ~16ms, and anything
+# approaching this number means something is wrong rather than slow. Reaching it
+# costs the highlight, not the preview.
+MATCH_TIMEOUT = 10
+
+
+def build_match_argv(query: str, path: str) -> list[str]:
+    """The ugrep command line that reports where `query` matches inside one file.
+
+    The query-shaping flags are exactly `build_argv`'s -i, -% and --files, so
+    the terms reported here are the same ones that selected this file in the
+    first place: --files evaluates the Boolean over the whole file, so every
+    satisfied term is reported wherever it occurs, and NOT/- terms — which
+    excluded the file rather than matching in it — are not reported at all.
+
+    `-o -u` reports every match rather than one per line.
+
+    Deliberately *not* carried over from `build_argv`: -r and -l (this is one
+    named file and the offsets are the whole point), --line-buffered (the
+    output is read in one go), and `search_globs()`. The globs are the one that
+    would bite: -g filters explicitly named file arguments too, so passing them
+    here returns nothing for the very file the search just found.
+    """
+    return ["ugrep", "-i", "-%", "--files", "-o", "-u", MATCH_FORMAT, "--", query, path]
+
+
+def _match_length(field: str) -> int:
+    """The character length of a `%j` field — a JSON-quoted match.
+
+    The fast path avoids `json.loads` for the overwhelmingly common match with
+    nothing to escape, which is what keeps parsing a file full of hits cheap:
+    at ~88k matches that is the difference between roughly 20ms and 85ms.
+    """
+    if "\\" in field:
+        return len(json.loads(field))
+    return len(field) - 2
+
+
+def match_spans(query: str, path: str) -> dict[int, list[tuple[int, int]]]:
+    """Where `query` matches in `path`: 0-based line -> [(column, length)].
+
+    Columns are 1-based characters, as ugrep reports them; the line numbers are
+    shifted to 0-based here because their only consumer indexes text blocks.
+
+    Never raises and never reports a problem. A missing ugrep, a timeout, a
+    file that changed since the search, or exit 1 (nothing matched) all come
+    back as {}: the preview is worth showing unhighlighted, and a dialog over
+    a merely undecorated pane would be worse than the missing color.
+    """
+    try:
+        completed = subprocess.run(
+            build_match_argv(query, path),
+            capture_output=True,
+            text=True,
+            timeout=MATCH_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+
+    if completed.returncode != EXIT_MATCHED:
+        return {}
+
+    spans: dict[int, list[tuple[int, int]]] = {}
+    # Split on "\n" rather than splitlines() for the same reason `_read_stdout`
+    # does: a matched string can contain \v, \f or \x85, and %j escapes none of
+    # them, so splitlines() would tear one match into two unparseable halves.
+    for line in completed.stdout.split("\n"):
+        if not line:
+            continue
+        try:
+            number, column, matched = line.split(" ", 2)
+            spans.setdefault(int(number) - 1, []).append(
+                (int(column), _match_length(matched))
+            )
+        except ValueError:
+            continue
+    return spans
 
 
 class SearchRunner(QObject):
