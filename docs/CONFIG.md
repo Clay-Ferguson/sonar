@@ -9,8 +9,11 @@ SonarEx reads one file:
 It is created with defaults the first time SonarEx runs, and it holds exactly
 two settings — the glob patterns that scope every search.
 
-There is no settings dialog yet, so edit this file by hand. A configuration
-dialog that writes these same two lists is planned.
+Edit them from the **gear button** in the window's top row, which opens a
+settings dialog holding one text area per list, one pattern per line. The file
+can still be edited by hand; the dialog and the file are two views of the same
+two lists. Saving from the dialog **rewrites the file**, so any comments or
+blank lines you added by hand are replaced by SonarEx's own.
 
 ## The file
 
@@ -80,6 +83,9 @@ Every failure degrades to "no patterns", never to an error:
 
 - **File missing** — recreated with the defaults above on the next run.
 - **Malformed YAML** — reported on stdout, and the search runs unfiltered.
+  The settings dialog says so at the top of the window when you open it, since
+  its fields start empty in that case and saving would replace the file rather
+  than edit it.
 - **A key holding the wrong type** (say `included: "*.md"` instead of a list)
   — that key is ignored; the other still applies.
 - **Non-string entries** in a list — dropped individually.

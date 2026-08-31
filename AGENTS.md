@@ -47,6 +47,14 @@ the query only ever comes from the window.
   command line.
 - `sonarex/window.py` — `MainWindow`: the two rows, the splitter, the status
   label, and the end-of-search sort.
+- `sonarex/style.py` — the shared look: `action_button_style()`, the wider
+  scroll bars, `tune_palette()`, `mono_font()`. It exists so a dialog can
+  match the window's controls without importing `window`, which opens the
+  dialogs and would make that a cycle. It imports nothing from the package
+  except `UI_POINT_SIZE`; keep it that way.
+- `sonarex/settings.py` — the gear button's dialog: one text area per pattern
+  list, one pattern per line. `_add_section()` is where a future setting goes;
+  the dialog sizes to its contents, so nothing else has to change.
 - `sonarex/viewer.py` — `read_for_preview()`: size cap, binary sniff, decode.
   Always returns a string, never raises.
 
@@ -71,6 +79,24 @@ the query only ever comes from the window.
   `pdftotext -q % -` rather than a shell one-liner. The PDF path is written
   against documented behavior and has **not** been exercised; treat it as
   unverified.
+- **Saving the config rewrites the whole file.** `render_config()` re-emits
+  the comments along with the two lists, precisely because a first-run
+  template would mean the explanations survived until the first Save and then
+  vanished. Keys the module does not know about are read back off the parsed
+  file and re-dumped underneath, so a setting added later is not dropped by an
+  older Save — but a file that will not parse contributes nothing to carry
+  across, which is why the dialog warns before it gets that far. The write
+  goes to a temp file and `os.replace`s over the original: a failure part-way
+  must not leave a truncated config, which the loader would read as "no
+  patterns" and silently search everything.
+
+- **A QPlainTextEdit's `sizeHint()` is a fixed 256x192**, unrelated to its
+  font — so `PatternEdit` overrides it outright rather than taking the larger
+  of the two, or the field opens at whatever line count that pixel height
+  happens to be. Its height counts the document margin *once*: the document
+  runs on underneath the bottom margin, so allowing for it at both ends leaves
+  room for the top few pixels of an eighth line.
+
 - **Config loading must never raise.** A missing file, bad YAML, or a key of
   the wrong type all degrade to "no patterns" so a typo means an unfiltered
   search rather than an app that won't search. Keep that property.
@@ -131,11 +157,18 @@ the config, an `included:` whitelist, a query starting with `-`, a folder with
 spaces in its name, no matches, a bad regex, a binary file, a file over the
 2 MiB preview cap, and repeated Search presses mid-search.
 
+The settings dialog is drivable the same way — `SettingsDialog()` constructs
+without the main window, and `_save()` can be called directly instead of
+clicking. Point `config.CONFIG_PATH` at a temp file first: it is read at call
+time, so rebinding the module attribute is enough, and nothing in a test then
+touches the real `~/.config`.
+
 ## Not built yet
 
-- The include/exclude **configuration dialog**. The config file is read, but
-  editing means opening the YAML by hand. Everything in `config.py` is shaped
-  so that dialog only has to write the same two lists back.
+- Any setting beyond the two pattern lists. The dialog is built to grow —
+  another `_add_section()` call and it re-sizes itself — and `render_config()`
+  carries unknown keys through, so an option can be added on either side
+  first.
 - Single-instance / tabbed behavior.
 
 ## Working in this repo

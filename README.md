@@ -88,8 +88,9 @@ search:
 whitelist — leave it empty unless you want to search *only* certain file
 types, since any entry hides everything else.
 
-There is no settings dialog yet; edit the file by hand for now. See
-[docs/CONFIG.md](docs/CONFIG.md) for the full reference.
+Edit both lists from the gear button in the top row — one pattern per line —
+or open the file directly. Either way the change applies to the next search.
+See [docs/CONFIG.md](docs/CONFIG.md) for the full reference.
 
 ## Requirements
 
