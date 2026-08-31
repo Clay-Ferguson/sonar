@@ -6,14 +6,14 @@ SonarEx reads one file:
 ~/.config/sonarex/sonarex-config.yaml
 ```
 
-It is created with defaults the first time SonarEx runs, and it holds exactly
-two settings — the glob patterns that scope every search.
+It is created with defaults the first time SonarEx runs, and it holds three
+settings — the two lists of glob patterns that scope every search, and the
+command the Open button runs.
 
-Edit them from the **gear button** in the window's top row, which opens a
-settings dialog holding one text area per list, one pattern per line. The file
-can still be edited by hand; the dialog and the file are two views of the same
-two lists. Saving from the dialog **rewrites the file**, so any comments or
-blank lines you added by hand are replaced by SonarEx's own.
+Edit them from the **gear button** in the window's top row. The file can still
+be edited by hand; the dialog and the file are two views of the same settings.
+Saving from the dialog **rewrites the file**, so any comments or blank lines
+you added by hand are replaced by SonarEx's own.
 
 ## The file
 
@@ -35,9 +35,14 @@ search:
     - "*/dist/*"
     - "*/.next/*"
     - "*/.nuxt/*"
+
+open:
+  # The command the Open button runs.
+  command: "/usr/bin/code"
 ```
 
-Changes take effect on the next search — there is no need to restart SonarEx.
+Changes take effect the next time the setting is used — the next search, or
+the next press of Open. There is no need to restart SonarEx.
 
 ## `search.included`
 
@@ -77,6 +82,43 @@ Exclusions are worth keeping generous. Skipping `node_modules`, `.git` and
 build output is usually the difference between a search that returns in a
 second and one that grinds through a hundred thousand irrelevant files.
 
+## `open.command`
+
+The command the **Open** button runs on the selected file. It defaults to
+`/usr/bin/code` (VS Code), which is what SonarEx used before this was
+configurable.
+
+The command is split the way a shell would split it — so quotes work, and an
+editor whose path contains a space can be quoted — but it is **not run through
+a shell**. Pipes, redirection, `&&` and environment assignments do nothing
+useful; if you need them, point this at a script.
+
+The selected file is added as the **last argument**:
+
+| `open.command` | SonarEx runs |
+|---|---|
+| `/usr/bin/code` | `/usr/bin/code /path/to/hit.txt` |
+| `gedit` | `/usr/bin/gedit /path/to/hit.txt` |
+| `code -n` | `/usr/bin/code -n /path/to/hit.txt` |
+| `xdg-open` | opens it in whatever the desktop associates with the type |
+
+Unless you write `%s`, in which case the file goes there instead — for a
+command that takes the filename in the middle:
+
+```yaml
+open:
+  command: "gnome-terminal -- vim %s"
+```
+
+A bare program name is looked up on `PATH`; an absolute path is used as given.
+Either way, a command that cannot be found is reported in a dialog naming the
+program, rather than failing silently.
+
+The editor is started in its own session with its streams discarded, so it
+outlives SonarEx and cannot block the window. SonarEx's own virtualenv is
+stripped from the environment it inherits — otherwise VS Code would offer
+SonarEx's Python interpreter to whatever project it opens.
+
 ## When the config is missing or broken
 
 Every failure degrades to "no patterns", never to an error:
@@ -87,7 +129,9 @@ Every failure degrades to "no patterns", never to an error:
   its fields start empty in that case and saving would replace the file rather
   than edit it.
 - **A key holding the wrong type** (say `included: "*.md"` instead of a list)
-  — that key is ignored; the other still applies.
+  — that key is ignored; the others still apply.
+- **An empty or non-string `open.command`** — the default editor is used, so
+  clearing the field in the dialog resets it rather than breaking Open.
 - **Non-string entries** in a list — dropped individually.
 
 A search never fails because of a typo in this file. If results look wrong,

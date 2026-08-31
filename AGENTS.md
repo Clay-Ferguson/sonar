@@ -39,9 +39,13 @@ the query only ever comes from the window.
   before a `QApplication` exists, which is invisible when launched from a
   desktop icon; every startup failure is a `QMessageBox` instead.
 - `sonarex/config.py` — the YAML config plus the glob translation it feeds.
-  `convert_excluded_pattern()` turns find-style `*/name/*` into ugrep's
-  `!name/`; `search_globs()` is the one call the GUI needs. Loading is
-  forgiving by design (see below).
+  `Settings` is the file as a record and `load_settings()`/`save_settings()`
+  are the dialog's whole interface to it; the rest of the app goes through the
+  two accessors instead, `search_globs()` for the ugrep argv and
+  `open_command()` for the editor, both read at the moment of use so a saved
+  change needs no restart and no notification. `convert_excluded_pattern()`
+  turns find-style `*/name/*` into ugrep's `!name/`. Loading is forgiving by
+  design (see below).
 - `sonarex/search.py` — `SearchRunner`, a `QProcess` wrapper that streams
   ugrep's hits back as `matchFound(path)` signals. `build_argv()` owns the
   command line.
@@ -53,10 +57,14 @@ the query only ever comes from the window.
   dialogs and would make that a cycle. It imports nothing from the package
   except `UI_POINT_SIZE`; keep it that way.
 - `sonarex/settings.py` — the gear button's dialog: one text area per pattern
-  list, one pattern per line. `_add_section()` is where a future setting goes;
-  the dialog sizes to its contents, so nothing else has to change.
+  list (one pattern per line) and a line edit for the Open command. A future
+  setting is one more `_add_patterns()`/`_add_line()` call plus a field on
+  `Settings`; the dialog sizes to its contents, so nothing else has to change.
 - `sonarex/viewer.py` — `read_for_preview()`: size cap, binary sniff, decode.
-  Always returns a string, never raises.
+  Always returns a string, never raises. Also `open_in_editor()`, which runs
+  `open.command` from the config — `build_open_argv()` is the split-and-place
+  rule, and every failure comes back as a message naming the command, since
+  the command is now something the user typed.
 
 ## Things that will bite you
 
@@ -74,6 +82,12 @@ the query only ever comes from the window.
 - **`--` before the query is load-bearing.** Without it a query starting with
   `-` (`-l`, say) is parsed as an option. The folder is passed absolute so
   every path ugrep prints is absolute.
+- **The Open command runs without a shell either**, for the same reason the
+  ugrep filter does: `subprocess.Popen` gets an argv list, split by `shlex`.
+  Quotes and spaces in a program path work; pipes, redirection and `&&` do
+  not. Do not "fix" that with `shell=True` — the command reaches this code
+  from a text field, and a shell would make a stray `;` in it executable.
+
 - **`--filter` runs without a shell.** ugrep executes a filter command
   directly, so `PDF_FILTER` can contain no pipes or redirection — hence
   `pdftotext -q % -` rather than a shell one-liner. The PDF path is written
@@ -85,17 +99,22 @@ the query only ever comes from the window.
   vanished. Keys the module does not know about are read back off the parsed
   file and re-dumped underneath, so a setting added later is not dropped by an
   older Save — but a file that will not parse contributes nothing to carry
-  across, which is why the dialog warns before it gets that far. The write
+  across, which is why the dialog warns before it gets that far. A new setting
+  needs its key added to the "known" sets in `render_config`, or it will be
+  written twice: once by name and once as an unknown extra. The write
   goes to a temp file and `os.replace`s over the original: a failure part-way
   must not leave a truncated config, which the loader would read as "no
   patterns" and silently search everything.
 
-- **A QPlainTextEdit's `sizeHint()` is a fixed 256x192**, unrelated to its
-  font — so `PatternEdit` overrides it outright rather than taking the larger
-  of the two, or the field opens at whatever line count that pixel height
-  happens to be. Its height counts the document margin *once*: the document
-  runs on underneath the bottom margin, so allowing for it at both ends leaves
-  room for the top few pixels of an eighth line.
+- **`PatternEdit`'s height is pinned, and the slack goes above the buttons.**
+  Two things conspire otherwise: a QPlainTextEdit's `sizeHint()` is a fixed
+  256x192 with no relation to its font, and a QVBoxLayout hands any surplus
+  height to whatever will take it. A field a few pixels off a whole number of
+  lines shows the top of the next one, which reads as clipped text. So the
+  height is computed from the font (`lineSpacing() * lines`, plus the frame
+  and the document margin counted **once** — the document runs on underneath
+  the bottom margin) and fixed, and the dialog's `addStretch(1)` before the
+  button row absorbs whatever a resize adds.
 
 - **Config loading must never raise.** A missing file, bad YAML, or a key of
   the wrong type all degrade to "no patterns" so a typo means an unfiltered
@@ -165,10 +184,9 @@ touches the real `~/.config`.
 
 ## Not built yet
 
-- Any setting beyond the two pattern lists. The dialog is built to grow —
-  another `_add_section()` call and it re-sizes itself — and `render_config()`
-  carries unknown keys through, so an option can be added on either side
-  first.
+- Further settings. The dialog is built to grow — another `_add_patterns()` or
+  `_add_line()` call and it re-sizes itself — and `render_config()` carries
+  unknown keys through, so an option can be added on either side first.
 - Single-instance / tabbed behavior.
 
 ## Working in this repo

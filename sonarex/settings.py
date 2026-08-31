@@ -1,4 +1,4 @@
-"""The settings dialog: the include and exclude pattern lists, as text.
+"""The settings dialog: the search patterns, and the Open button's command.
 
 One pattern per line in each of two text areas, which is the shape the lists
 already have in the config file and the shape they need for ugrep. There is
@@ -6,24 +6,25 @@ no add/remove/reorder machinery because a text area already does all three,
 and it is the only editor for this that can be used without the mouse.
 
 The layout is a stack of labelled sections in a QVBoxLayout, sized to its
-contents: the next setting is a `_add_section` call and the dialog grows to
-fit it, with no geometry to revisit.
+contents: the next setting is one more `_add_patterns` or `_add_line` call
+and the dialog grows to fit it, with no geometry to revisit.
 
-Saving writes the file and nothing else — `SearchRunner` re-reads the config
-on every search (`build_argv` calls `search_globs`), so the next Search picks
-the new patterns up on its own.
+Saving writes the file and nothing else. Both readers go back to the config
+at the moment they need it — `build_argv` calls `search_globs` per search,
+`open_in_editor` calls `open_command` per click — so a saved change applies
+next time without a restart and without anything to notify.
 """
 
 from __future__ import annotations
 
 from html import escape
 
-from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QFontMetrics, QIcon
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -34,15 +35,17 @@ from PyQt6.QtWidgets import (
 from . import APP_NAME
 from .config import (
     CONFIG_PATH,
-    load_patterns,
+    Settings,
+    load_settings,
     parse_pattern_lines,
     pattern_lines,
-    save_patterns,
+    save_settings,
 )
 from .style import (
     HELP_BUTTON_BG,
     SEARCH_BUTTON_BG,
     SEARCH_BUTTON_PADDING,
+    action_button_size,
     action_button_style,
     apply_scrollbars,
     match_action_button,
@@ -91,10 +94,12 @@ def settings_icon() -> QIcon:
 class PatternEdit(QPlainTextEdit):
     """A text area exactly `VISIBLE_LINES` tall, one pattern per line.
 
-    The height is reported through `sizeHint` rather than pinned with
-    `setFixedHeight`, so the dialog opens at seven lines but the fields still
-    take the extra room when someone drags it larger — a fixed height would
-    leave a resized dialog with a band of dead space instead.
+    The height is pinned rather than left to the layout. A QVBoxLayout hands
+    surplus height to whatever will take it, and a field a few pixels taller
+    than a whole number of lines shows the top of the next one — a sliver of
+    clipped text along the bottom edge that reads as a rendering fault. Seven
+    whole lines, always; the dialog's own surplus collects above the buttons
+    instead.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -105,7 +110,7 @@ class PatternEdit(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setTabChangesFocus(True)  # Tab moves on rather than inserting one
         apply_scrollbars(self)
-        self.setMinimumHeight(self._height_for_lines())
+        self.setFixedHeight(self._height_for_lines())
 
     def _height_for_lines(self) -> int:
         """The pixel height that shows `VISIBLE_LINES` lines and no more.
@@ -124,13 +129,6 @@ class PatternEdit(QPlainTextEdit):
         margin = int(self.document().documentMargin())
         return metrics.lineSpacing() * VISIBLE_LINES + margin + 2 * self.frameWidth()
 
-    def sizeHint(self) -> QSize:
-        # Width from the base class, height ours: QAbstractScrollArea's own
-        # hint is a fixed 256x192 that has nothing to do with the font, and
-        # taking the larger of the two would open the field at nine lines on
-        # this font and some other number on the next one.
-        return QSize(super().sizeHint().width(), self._height_for_lines())
-
 
 class SettingsDialog(QDialog):
     """Edit `search.included` and `search.excluded`, then save or discard."""
@@ -140,12 +138,12 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(f"{APP_NAME} — Settings")
         self.setMinimumWidth(MIN_WIDTH)
 
-        included, excluded, error = load_patterns()
+        settings, error = load_settings()
 
         self._layout = QVBoxLayout(self)
         # The layout's own spacing is the tight one, since it is what falls
         # between a label and the field it names; the wider gap between
-        # sections is added explicitly, in `_add_section`.
+        # sections is added explicitly, in `_begin_section`.
         self._layout.setSpacing(LABEL_SPACING)
 
         if error:
@@ -165,34 +163,77 @@ class SettingsDialog(QDialog):
             warning.setWordWrap(True)
             self._layout.addWidget(warning)
 
-        self.included_edit = self._add_section(
-            "Include only these files (empty = search everything):", included
+        self.included_edit = self._add_patterns(
+            "Include only these files (empty = search everything):",
+            settings.included,
         )
-        self.excluded_edit = self._add_section(
-            "Skip these files and folders:", excluded
+        self.excluded_edit = self._add_patterns(
+            "Skip these files and folders:", settings.excluded
+        )
+        self.open_edit = self._add_line(
+            "Command the Open button runs (the file is added as the last argument):",
+            settings.open_command,
+            # The caption covers the case everyone has — a program name. The
+            # rest is here rather than on a third line of label: it matters
+            # only to someone already reaching for a placeholder or a flag.
+            tooltip=(
+                "Split the way a shell would split it, but run without a shell,"
+                " so pipes and redirection do not work.\n"
+                "Put %s anywhere in the command to place the file there instead"
+                " of at the end — e.g. gnome-terminal -- vim %s"
+            ),
         )
 
-        # New settings go here — one more `_add_section` (or any widget) added
-        # before the button row, which stays pinned to the bottom.
+        # New settings go here — one more `_add_patterns` / `_add_line` (or
+        # any widget) added before the button row, which stays pinned to the
+        # bottom.
 
+        # Every field above is a fixed height, so a dialog dragged taller has
+        # surplus to put somewhere: it goes here, between the last setting and
+        # the buttons, rather than into a field that would then show a clipped
+        # row. At the dialog's natural size this is worth nothing.
+        self._layout.addStretch(1)
         self._layout.addSpacing(SECTION_SPACING - LABEL_SPACING)
         self._layout.addLayout(self._button_row())
 
     # -- construction ------------------------------------------------------
 
-    def _add_section(self, label: str, patterns: list[str]) -> PatternEdit:
-        """A labelled pattern field, appended to the stack. Returns the field."""
+    def _begin_section(self, label: str, tooltip: str = "") -> None:
+        """Open a new labelled section: the gap above it, then its caption."""
         if self._layout.count():
             # Everything but the first section is held off from what precedes
             # it, so a label reads as belonging to the field below it rather
             # than to the one above.
             self._layout.addSpacing(SECTION_SPACING - LABEL_SPACING)
-        self._layout.addWidget(QLabel(label))
+        caption = QLabel(label)
+        # A long caption wraps rather than widening the dialog past MIN_WIDTH.
+        caption.setWordWrap(True)
+        # The label carries the field's tooltip too: it is the larger target,
+        # and someone hunting for an explanation hovers the text.
+        caption.setToolTip(tooltip)
+        self._layout.addWidget(caption)
+
+    def _add_patterns(self, label: str, patterns: list[str]) -> PatternEdit:
+        """A labelled pattern field, appended to the stack. Returns the field."""
+        self._begin_section(label)
         edit = PatternEdit()
         edit.setPlainText(pattern_lines(patterns))
-        # Stretch 1: at the dialog's own size the field sits at its seven-line
-        # hint, and only a deliberate resize by the user gives it more.
-        self._layout.addWidget(edit, 1)
+        self._layout.addWidget(edit)
+        return edit
+
+    def _add_line(self, label: str, value: str, tooltip: str = "") -> QLineEdit:
+        """A labelled single-line field, appended to the stack.
+
+        Height matched to the buttons — and so to the main window's query row,
+        which is measured the same way — rather than left at a bare
+        QLineEdit's, which is shorter than everything around it.
+        """
+        self._begin_section(label, tooltip)
+        edit = QLineEdit(value)
+        edit.setFont(mono_font())
+        edit.setToolTip(tooltip)
+        edit.setFixedHeight(action_button_size().height())
+        self._layout.addWidget(edit)
         return edit
 
     def _button_row(self) -> QHBoxLayout:
@@ -225,10 +266,13 @@ class SettingsDialog(QDialog):
     # -- actions -----------------------------------------------------------
 
     def _save(self) -> None:
-        """Write both lists back, and close only if that worked."""
-        error = save_patterns(
-            parse_pattern_lines(self.included_edit.toPlainText()),
-            parse_pattern_lines(self.excluded_edit.toPlainText()),
+        """Write every field back, and close only if that worked."""
+        error = save_settings(
+            Settings(
+                included=parse_pattern_lines(self.included_edit.toPlainText()),
+                excluded=parse_pattern_lines(self.excluded_edit.toPlainText()),
+                open_command=self.open_edit.text().strip(),
+            )
         )
         if error:
             # Left open rather than closed on failure: the edits are still in

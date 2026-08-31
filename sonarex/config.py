@@ -1,12 +1,17 @@
-"""The config file, and the glob translation it feeds.
+"""The config file, the glob translation it feeds, and the Open command.
 
-One YAML file at `CONFIG_PATH` holds two lists of glob patterns —
-`search.included` and `search.excluded` — which scope every search. The
-settings dialog (`settings.py`) edits exactly those two lists, and
-`save_patterns()` is the whole of what it needs to write them back.
+One YAML file at `CONFIG_PATH` holds everything the settings dialog edits:
+the two lists of glob patterns that scope every search (`search.included` and
+`search.excluded`) and the command the Open button runs (`open.command`).
+`Settings` is that file as a record; `load_settings()` and `save_settings()`
+are the whole of what the dialog needs.
+
+Two accessors exist for the rest of the app, so nothing else has to know the
+shape of the file: `search_globs()` for the ugrep argv, and `open_command()`
+for the editor.
 
 Loading is deliberately forgiving: a missing file, unreadable file, malformed
-YAML, or a key holding the wrong type all degrade to "no patterns", so a
+YAML, or a key holding the wrong type all fall back to the defaults, so a
 broken config means an unfiltered search rather than an app that won't run.
 The one thing a search must never do is fail because of a comment someone
 mistyped in a config file.
@@ -15,6 +20,7 @@ mistyped in a config file.
 from __future__ import annotations
 
 import os
+from typing import NamedTuple
 
 # PyYAML is a declared dependency, so this import normally succeeds. It is
 # still guarded because the failure mode matters: running the module without
@@ -48,6 +54,27 @@ DEFAULT_EXCLUDED = [
     "*/.nuxt/*",
 ]
 
+# The command the Open button runs when nothing else is configured. Carried
+# over from the Nautilus version, which spawned exactly this.
+DEFAULT_OPEN_COMMAND = "/usr/bin/code"
+
+
+class Settings(NamedTuple):
+    """The config file as a record — one field per thing the dialog edits.
+
+    Adding a setting is a field here, a line in `render_config` and a widget
+    in the dialog; nothing has to grow a wider tuple or a positional argument
+    at each call site.
+    """
+
+    included: list[str]
+    excluded: list[str]
+    open_command: str
+
+
+DEFAULTS = Settings([], DEFAULT_EXCLUDED, DEFAULT_OPEN_COMMAND)
+
+
 # The comment block at the top of the file, and the ones introducing each
 # list. They are written out by `render_config` rather than living only in a
 # first-run template, because the settings dialog rewrites the whole file —
@@ -56,12 +83,21 @@ DEFAULT_EXCLUDED = [
 FILE_COMMENT = """\
 # SonarEx configuration.
 #
-# Both lists are glob patterns, and both are optional. SonarEx rewrites this
-# file when you press Save in the settings dialog, which reformats it: your
-# own comments and blank lines here will not survive that.
+# SonarEx rewrites this file when you press Save in the settings dialog, which
+# reformats it: your own comments and blank lines here will not survive that.
+"""
+
+OPEN_COMMENT = """\
+  # The command the Open button runs. It is split the way a shell would split
+  # it, but no shell is involved, so pipes and redirection do not work. The
+  # selected file is appended as the last argument — or substituted wherever
+  # %s appears, if it appears at all.
+  # Examples: "/usr/bin/code", "gedit", "xdg-open", "gnome-terminal -- vim %s"
 """
 
 INCLUDED_COMMENT = """\
+  # Both lists are glob patterns, and both are optional.
+  #
   # Files to search. An EMPTY list means "search everything", which is the
   # default. Adding any entry turns this into a whitelist: only files matching
   # one of these patterns are searched, and everything else is ignored.
@@ -114,35 +150,43 @@ def _indent_yaml(mapping: dict, indent: str) -> str:
     return "".join(f"{indent}{line}\n" for line in dumped.splitlines())
 
 
-def render_config(
-    included: list[str], excluded: list[str], config: dict | None = None
-) -> str:
-    """The full text of a config file holding these two pattern lists.
+def _section(mapping: dict | None) -> dict:
+    """One top-level section of the parsed file, or `{}` if it isn't a mapping."""
+    return mapping if isinstance(mapping, dict) else {}
+
+
+def render_config(settings: Settings, config: dict | None = None) -> str:
+    """The full text of a config file holding `settings`.
 
     `config` is the file's previously parsed contents, if any: every key it
-    holds other than `search.included` and `search.excluded` is written back
-    out underneath, so rewriting the file preserves settings this function
-    was never taught about.
+    holds that `Settings` does not cover is written back out underneath, so
+    rewriting the file preserves settings this function was never taught
+    about.
     """
-    config = config if isinstance(config, dict) else {}
-    search = config.get("search")
-    search = search if isinstance(search, dict) else {}
+    config = _section(config)
+    search = _section(config.get("search"))
+    opening = _section(config.get("open"))
 
     extra_search = {k: v for k, v in search.items() if k not in ("included", "excluded")}
-    extra_top = {k: v for k, v in config.items() if k != "search"}
+    extra_open = {k: v for k, v in opening.items() if k != "command"}
+    extra_top = {k: v for k, v in config.items() if k not in ("search", "open")}
 
     return (
         FILE_COMMENT
         + "\nsearch:\n"
-        + _render_list("included", INCLUDED_COMMENT, included)
+        + _render_list("included", INCLUDED_COMMENT, settings.included)
         + "\n"
-        + _render_list("excluded", EXCLUDED_COMMENT, excluded)
+        + _render_list("excluded", EXCLUDED_COMMENT, settings.excluded)
         + _indent_yaml(extra_search, "  ")
+        + "\nopen:\n"
+        + OPEN_COMMENT
+        + f"  command: {_quote(settings.open_command)}\n"
+        + _indent_yaml(extra_open, "  ")
         + _indent_yaml(extra_top, "")
     )
 
 
-DEFAULT_CONFIG = render_config([], DEFAULT_EXCLUDED)
+DEFAULT_CONFIG = render_config(DEFAULTS)
 
 
 def ensure_config() -> None:
@@ -214,6 +258,21 @@ def get_patterns(config: dict, kind: str) -> list[str]:
     return [p for p in patterns if isinstance(p, str) and p]
 
 
+def get_string(config: dict, section: str, key: str, default: str) -> str:
+    """`<section>.<key>` from `config` as a non-empty string, else `default`.
+
+    Blank counts as absent on purpose: clearing the Open command in the dialog
+    should give back the built-in editor, not a button that tries to run "".
+    """
+    values = config.get(section)
+    if not isinstance(values, dict):
+        return default
+    value = values.get(key)
+    if not isinstance(value, str) or not value.strip():
+        return default
+    return value.strip()
+
+
 def convert_excluded_pattern(pattern: str) -> str:
     """A find-style exclusion pattern as a ugrep `-g` glob.
 
@@ -252,12 +311,22 @@ def build_glob_args(excluded: list[str], included: list[str]) -> list[str]:
 
 
 def search_globs() -> list[str]:
-    """The `-g` argv for the current config — the one call the GUI needs."""
+    """The `-g` argv for the current config — the one call the search needs."""
     config = load_config()
     return build_glob_args(
         get_patterns(config, "excluded"),
         get_patterns(config, "included"),
     )
+
+
+def open_command() -> str:
+    """The Open button's command line — the one call the viewer needs.
+
+    Read per click rather than cached, for the same reason the globs are read
+    per search: a change saved in the dialog has to apply to the next use
+    without restarting the app.
+    """
+    return get_string(load_config(), "open", "command", DEFAULT_OPEN_COMMAND)
 
 
 # -- writing ----------------------------------------------------------------
@@ -278,14 +347,25 @@ def pattern_lines(patterns: list[str]) -> str:
     return "\n".join(patterns)
 
 
-def load_patterns() -> tuple[list[str], list[str], str | None]:
-    """`(included, excluded, error)` for the settings dialog to display."""
+def load_settings() -> tuple[Settings, str | None]:
+    """The file as a `Settings`, plus a message if it could not be read.
+
+    Every field falls back to its default independently, so one malformed key
+    costs only that key — the dialog still opens on the rest of the file.
+    """
     config, error = read_config()
-    return get_patterns(config, "included"), get_patterns(config, "excluded"), error
+    return (
+        Settings(
+            included=get_patterns(config, "included"),
+            excluded=get_patterns(config, "excluded"),
+            open_command=get_string(config, "open", "command", DEFAULT_OPEN_COMMAND),
+        ),
+        error,
+    )
 
 
-def save_patterns(included: list[str], excluded: list[str]) -> str | None:
-    """Write the two lists to `CONFIG_PATH`; return an error message or None.
+def save_settings(settings: Settings) -> str | None:
+    """Write `settings` to `CONFIG_PATH`; return an error message or None.
 
     The file is rewritten in full rather than patched, so keys this module
     does not know about are carried across by `render_config` reading them
@@ -299,7 +379,7 @@ def save_patterns(included: list[str], excluded: list[str]) -> str | None:
     one that a later search would silently read as "no patterns".
     """
     config, _error = read_config()
-    text = render_config(included, excluded, config)
+    text = render_config(settings, config)
 
     temporary = f"{CONFIG_PATH}.tmp"
     try:

@@ -54,6 +54,9 @@ pane is read-only and wraps long lines; it is not an editor. Binary files
 (PDFs included) are named rather than shown, and very large files are
 described instead of loaded.
 
+**Open** hands the selected file to a real editor — VS Code by default, or
+whatever command you set in the settings dialog.
+
 ## Query syntax
 
 Queries run in ugrep's Boolean mode (`-%`) at whole-file scope (`--files`),
@@ -74,7 +77,7 @@ Searches are case-insensitive.
 ## Configuration
 
 `~/.config/sonarex/sonarex-config.yaml`, created with sensible defaults the
-first time SonarEx runs. It holds two lists of glob patterns:
+first time SonarEx runs:
 
 ```yaml
 search:
@@ -82,15 +85,20 @@ search:
   excluded:
     - "*/node_modules/*"
     - "*/.git/*"
+
+open:
+  command: "/usr/bin/code"
 ```
 
 `excluded` skips the directories nobody means to search. `included` is a
 whitelist — leave it empty unless you want to search *only* certain file
-types, since any entry hides everything else.
+types, since any entry hides everything else. `open.command` is what the Open
+button runs; the file is added as the last argument.
 
-Edit both lists from the gear button in the top row — one pattern per line —
-or open the file directly. Either way the change applies to the next search.
-See [docs/CONFIG.md](docs/CONFIG.md) for the full reference.
+Edit all three from the gear button in the top row — one pattern per line in
+each list — or open the file directly. Either way the change applies the next
+time it is used, with no restart. See [docs/CONFIG.md](docs/CONFIG.md) for the
+full reference.
 
 ## Requirements
 

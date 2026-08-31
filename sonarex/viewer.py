@@ -6,20 +6,24 @@ why, never an exception, since it runs inside a selection-changed callback
 where a traceback would take the window down.
 
 `open_in_editor` hands the file to a real editor, for when reading it here
-isn't enough.
+isn't enough. Which editor is a config key (`open.command`), read at the
+moment of the click, so changing it in the settings dialog takes effect on
+the next Open rather than the next run.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 
-# The editor the Open button launches. Carried over unchanged from the
-# Nautilus version, which spawned exactly this. Slated to become a config
-# key — when it does, this becomes the default rather than the only value,
-# which is why callers go through `open_in_editor` rather than reading it.
-EDITOR_COMMAND = "/usr/bin/code"
+from .config import open_command
+
+# Where the selected file goes in a configured command, if the user says.
+# Without it the path is appended, which is what almost every editor wants;
+# with it, the path can sit in the middle — `gnome-terminal -- vim %s`.
+PATH_PLACEHOLDER = "%s"
 
 # Beyond this, the file is described rather than shown. The pane holds plain
 # text, and loading tens of megabytes into it stalls the GUI thread laying
@@ -113,14 +117,40 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+def build_open_argv(command: str, path: str) -> list[str]:
+    """`command` as an argv list with `path` in it.
+
+    Split the way a shell would split it — quotes and escapes honored — but
+    nothing is handed to a shell, so an editor whose path has a space in it
+    works while a pipe or a redirection in the command does not. That is the
+    same trade `search.py` makes with ugrep's `--filter`.
+
+    The path is substituted for `%s` wherever it appears, in whole tokens or
+    inside one (`--file=%s`), and appended as the last argument when it does
+    not appear at all — which is the case for every ordinary editor.
+
+    Raises ValueError on a command shlex cannot split, e.g. one with an
+    unbalanced quote; the caller turns that into a message.
+    """
+    parts = shlex.split(command)
+    if not parts:
+        raise ValueError("the command is empty")
+    if any(PATH_PLACEHOLDER in part for part in parts):
+        return [part.replace(PATH_PLACEHOLDER, path) for part in parts]
+    return parts + [path]
+
+
 def open_in_editor(path: str) -> str | None:
-    """Open `path` in the editor. Returns an error message, or None on success.
+    """Open `path` with the configured command. An error message, or None.
 
-    An error is returned rather than raised so the caller can put it in the
-    status line: failing to open a file is worth saying, but not worth an
-    exception out of a button handler.
+    An error is returned rather than raised so the caller can show it: failing
+    to open a file is worth saying, but not worth an exception out of a button
+    handler. Every way this can go wrong — a command that will not parse, a
+    program that is not installed, a spawn that fails — comes back as a
+    string naming the command, since the command is now something the user
+    typed and can go back and fix.
 
-    The editor is checked on PATH first, so a missing one is reported as the
+    The program is checked on PATH first, so a missing one is reported as the
     missing program it is instead of a bare OSError from the spawn.
 
     Spawned with `start_new_session=True` and its streams discarded, so the
@@ -130,21 +160,34 @@ def open_in_editor(path: str) -> str | None:
     if not os.path.exists(path):
         return f"Cannot open — the file no longer exists:\n{path}"
 
-    program = EDITOR_COMMAND
+    command = open_command()
+    try:
+        argv = build_open_argv(command, path)
+    except ValueError as exc:
+        return (
+            f"The Open command cannot be run as written:\n\n    {command}\n\n"
+            f"{exc}\n\nFix it with the gear button."
+        )
+
+    program = argv[0]
     if not os.path.isabs(program):
         resolved = shutil.which(program)
         if resolved is None:
-            return f"Cannot open '{os.path.basename(path)}': '{program}' is not on PATH."
-        program = resolved
+            return (
+                f"Cannot open '{os.path.basename(path)}': "
+                f"'{program}' is not on PATH.\n\n"
+                "Change the Open command with the gear button."
+            )
+        argv[0] = resolved
     elif not os.path.exists(program):
         return (
-            f"Cannot open '{os.path.basename(path)}': {program} is not installed.\n"
-            "Install VS Code, or point EDITOR_COMMAND at another editor."
+            f"Cannot open '{os.path.basename(path)}': {program} is not installed.\n\n"
+            "Change the Open command with the gear button."
         )
 
     try:
         subprocess.Popen(
-            [program, path],
+            argv,
             env=_child_env(),
             start_new_session=True,
             stdin=subprocess.DEVNULL,
