@@ -41,6 +41,7 @@ from .search import (
     SearchRunner,
     literal_query_term,
     match_spans,
+    search_error,
 )
 from .settings import show_settings
 from .style import (
@@ -455,13 +456,37 @@ class MainWindow(QMainWindow):
         self._set_title(f"Searching… {self._match_count} files")
 
     def _on_search_finished(self, exit_code: int, stderr: str) -> None:
-        if exit_code == EXIT_NO_MATCH:
-            self._set_title("No matches")
-            return
-        if exit_code != EXIT_MATCHED:
-            message = stderr.strip() or f"ugrep exited with status {exit_code}."
+        """Report a real failure; otherwise settle the list and the title.
+
+        The exit status alone cannot decide this. ugrep uses 2 both for a
+        search that failed and for one that merely skipped a file it could not
+        open — and which of those an encrypted archive counts as varies by
+        build: 7.5.0 on one machine exits 0 for a tree holding one, while
+        another exits 2 for the same tree. Taking 2 at face value therefore
+        raised a modal dialog on every search that so much as passed a
+        password-protected zip, which is exactly what archive searching was
+        asked not to do. `search_error` reads the stderr instead and keeps
+        only what is not a per-file note.
+
+        The count rather than EXIT_NO_MATCH decides "No matches", for the same
+        reason: a fruitless search over a tree with an unreadable file in it
+        exits 2, not 1.
+        """
+        problem = ""
+        if exit_code not in (EXIT_MATCHED, EXIT_NO_MATCH):
+            problem = search_error(stderr)
+            # An unexplained failure is still a failure: only silence a
+            # non-zero status when ugrep said why and every reason was a file
+            # it skipped.
+            if not problem and not stderr.strip():
+                problem = f"ugrep exited with status {exit_code}."
+        if problem:
             self._set_title()
-            self._report_problem(message)
+            self._report_problem(problem)
+            return
+
+        if not self._match_count:
+            self._set_title("No matches")
             return
 
         self._sort_by_mtime()
@@ -748,6 +773,15 @@ class MainWindow(QMainWindow):
         # Without this a search still running when the window closes leaves an
         # orphaned ugrep walking the tree.
         self._runner.stop()
+        # And the PDF, for the same reason and a sharper consequence: the
+        # search model fills its pages in lazily, so closing the window while
+        # one is still being searched leaves pdfium walking a document Qt is
+        # already tearing down. Measured: the process exits on SIGSEGV rather
+        # than cleanly, which from a terminal is "Segmentation fault" after a
+        # session that went fine. Clearing first drops the model and the
+        # document while there is still a window to own them.
+        if self._pdf is not None:
+            self._pdf.clear()
         # And without this, every archive member opened this session is still
         # sitting in /tmp. An editor holding one open keeps its own buffer, so
         # removing it here costs the user nothing.

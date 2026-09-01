@@ -91,6 +91,15 @@ searchable text. Archives that are password-protected or corrupt are skipped
 without comment. PDFs and other binaries inside an archive are found and
 listed, but the preview names them rather than showing them.
 
+## Tests
+
+```bash
+./tests/run.sh
+```
+
+pytest and pytest-qt are fetched by the script itself, so there is nothing to
+install first. See [AGENTS.md](AGENTS.md#testing) for the layout.
+
 ## Query syntax
 
 Queries run in ugrep's Boolean mode (`-%`) at whole-file scope (`--files`),

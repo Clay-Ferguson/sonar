@@ -216,10 +216,14 @@ def _temp_copy(hit: Hit, depth: int) -> tuple[str | None, str | None]:
             f"{hit.path}\n\nIt may be encrypted, corrupt, or in a format ugrep "
             "cannot decompress.",
         )
-    if b"\x00" in data[:SNIFF_BYTES]:
-        # ugrep extracts line by line, so what comes back is text or it is
-        # nothing worth writing: handing an editor a mangled PDF would be
-        # worse than saying no.
+    # `is_pdf` first, and by name rather than by sniffing, for the same reason
+    # the preview checks it before extracting at all: ugrep's extraction is
+    # line-based, so a PDF comes back mangled whether or not it happens to
+    # hold a NUL byte — and one whose streams are uncompressed holds none.
+    # The NUL sniff catches everything else.
+    if is_pdf(name) or b"\x00" in data[:SNIFF_BYTES]:
+        # What comes back is text or it is nothing worth writing: handing an
+        # editor a mangled PDF would be worse than saying no.
         return (
             None,
             f"'{name}' is not a text file, and Sonar "

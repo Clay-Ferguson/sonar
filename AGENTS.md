@@ -148,7 +148,8 @@ the query only ever comes from the window.
 
 - **ugrep's exit codes are 0 / 1 / 2**, and `1` means *no match*, not failure.
   Treating anything non-zero as an error reports an empty search as broken.
-  Verified against ugrep 7.5.0.
+  Verified against ugrep 7.5.0. `2` is not simply "failure" either — see the
+  entry on it below; it is also what a skipped file produces.
 - **Result ordering is done in Python, not by ugrep.** ugrep's
   `--sort=rchanged` sorts only *within* each directory and emits
   subdirectories after files, so it never produces a tree-wide newest-first
@@ -268,13 +269,24 @@ the query only ever comes from the window.
   format only goes on the argv when archives are on, so an ordinary search
   emits bare paths exactly as it always has.
 
-- **An unreadable archive does not fail the search.** ugrep writes
-  `cannot decompress …: zip data is encrypted` to stderr and leaves the exit
-  code at 0 (or 1 if nothing else matched) — measured on a `zip -P` file and on
-  a truncated one. Since `_on_search_finished` only shows stderr for an exit
-  above 1, password-protected and corrupt archives are already skipped in
-  silence, which is the wanted behavior and needed no code. Do not "fix" this
-  by treating stderr as an error.
+- **ugrep's exit 2 does not mean the search failed, and 0/1 do not mean it
+  went cleanly.** ugrep uses 2 both for a real failure and for a file it
+  skipped and carried on from — and *which of those an encrypted archive
+  counts as depends on the build*. Measured: 7.5.0 here exits 0 for a tree
+  holding a `zip -P` archive; another machine's build exits 2 for the same
+  tree. A directory without read permission exits 2 everywhere.
+
+  So the status cannot decide, and taking it at face value shipped a modal
+  error dialog on every search that so much as passed a password-protected zip
+  — on some machines only, which is why it survived a full test run here.
+  `search.search_error()` reads the stderr instead and keeps only the lines
+  that are not per-file notes (`warning:`, `cannot decompress`); empty means
+  the search ran. It matches **per line and keeps what it does not recognise**,
+  because a bad regex's message runs on for two more lines carrying no marker.
+
+  For the same reason `_on_search_finished` decides "No matches" from
+  `_match_count` rather than from `EXIT_NO_MATCH`: a fruitless search over a
+  tree with one unreadable file in it exits 2, not 1.
 
 - **ugrep is the extractor, and it is line-based.** `--format='%O%~'` over an
   empty pattern reproduces a member byte for byte — diffed against `unzip -p`
@@ -295,6 +307,22 @@ the query only ever comes from the window.
   is the reason the setting defaults off. Note too that a zip whose entries are
   *stored* rather than deflated already matches without `-z` — as one opaque
   binary row, since ugrep is scanning its raw bytes.
+
+- **`PdfPane` has to be cleared before the window is destroyed.** A
+  `QPdfSearchModel` searches pages lazily on its own, so closing while one is
+  still working leaves pdfium walking a document Qt is tearing down: measured,
+  the process exits **139 (SIGSEGV)** rather than 0, which from a terminal is
+  "Segmentation fault" printed after a session that went fine. `closeEvent`
+  calls `self._pdf.clear()` for this, and it predates the archive work — it
+  reproduces on 7b8c7cf. It is also why the test suite segfaulted until the
+  clear went in, since pytest keeps the process alive across tests.
+
+- **"Is this text?" cannot be answered by the NUL sniff alone.** A PDF with
+  uncompressed streams contains no NUL byte at all, so
+  `viewer._temp_copy` let one through and Open handed an editor a mangled
+  copy. It checks `is_pdf(name)` first now, by *name*, the way
+  `_read_compressed` always did before extracting. The preview never had the
+  bug because it asked that question in the right order.
 
 - **The Open command runs without a shell either**, for the same reason the
   ugrep filter does: `subprocess.Popen` gets an argv list, split by `shlex`.
@@ -393,18 +421,57 @@ absolute path there would work too, but only at one size.
 
 ## Testing
 
-There is no test suite in the repo. Drive the real window from a script
-instead — `MainWindow` is directly constructible, and `QEventLoop` + the
-`SearchRunner.finished` signal is enough to await a search:
+There is a pytest suite under `tests/`. Run it with:
 
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=/mnt/projects/sonarex uv run python yourtest.py
+./tests/run.sh                       # everything, ~1s
+./tests/run.sh tests/test_nested.py  # one file
+./tests/run.sh -k archive -v         # by name
 ```
 
-`QT_QPA_PLATFORM=offscreen` runs headless; `win.grab().save(path)` renders the
-window to a PNG when you want to see the layout. Note that a `QMessageBox`
-still blocks for a click under `offscreen`, so the startup-error paths can't
-be driven that way — assert on `ugrep_available()` instead.
+`run.sh` is a two-line wrapper: it sets `QT_QPA_PLATFORM=offscreen` and pulls
+pytest and pytest-qt in with `uv run --with`, so **nothing is declared in
+`pyproject.toml` and there is no install step** — the same bargain `start.sh`
+makes for the app itself. Keep it that way; the app ships two dependencies and
+the test tooling should not become a third.
+
+Layout: `conftest.py` builds every fixture archive from the standard library
+into pytest's `tmp_path`, so nothing is checked in and nothing is left in
+`/tmp` by hand. `helpers.py` reads the window back — `labels()`,
+`highlighted()`, `select()`, `nav()`. The suites are split by what they drive:
+`test_archive` (no Qt at all), `test_config`, `test_settings`,
+`test_window`, `test_queries`, `test_nested`.
+
+These are integration tests, deliberately: they run a real ugrep over real
+archives rather than mocking it, because nearly every bug this code has had
+lived in what ugrep actually does. That is also why they are worth running
+before *any* change to `search.py`, `archive.py` or `viewer.py`.
+
+The flip side, learned the hard way: **a green run says this ugrep on this
+filesystem, not "correct"**. Three tests passed here and failed on another
+machine — two because that build's exit status for an encrypted archive
+differs, one because its disk wrote both fixture archives inside a single
+mtime tick. Where behavior can vary like that, pin it rather than observe it:
+the fixture stamps explicit mtimes with `os.utime`, and the exit-status tests
+call `_on_search_finished` with the status directly instead of hoping the
+local ugrep produces it.
+
+Three fixtures carry the load and are worth knowing before adding a test:
+
+- `tree` — the archive tree. Its zip entries are **stored, not deflated**, on
+  purpose: that is what makes it match a raw byte search with `-z` off, which
+  is what `test_a_zip_is_one_opaque_row_when_off` pins. Deflate it and that
+  test starts passing for the wrong reason.
+- `conf` — a callable that writes a config and points `config.CONFIG_PATH` at
+  a temp file, so no test can reach the real `~/.config`.
+- `dialogs` — **autouse**, and load-bearing. A `QMessageBox` still blocks for
+  a click under `offscreen`, so one raised by code under test hangs the whole
+  run instead of failing it. This intercepts them all and hands back what
+  would have been shown, which is also the only way to assert that a problem
+  *was* reported.
+
+`win.grab().save(path)` still renders the window to a PNG when you want to see
+a layout rather than assert on it.
 
 Syntax checks:
 
@@ -413,10 +480,11 @@ python3 -m py_compile sonarex/*.py
 bash -n start.sh install.sh uninstall.sh
 ```
 
-Worth covering when you change search or results handling: exclusions from
-the config, an `included:` whitelist, a query starting with `-`, a folder with
-spaces in its name, no matches, a bad regex, a binary file, a file over the
-2 MiB preview cap, and repeated Search presses mid-search.
+Worth covering when you change search or results handling, most of it already
+in `test_queries.py` and `test_window.py`: exclusions from the config, an
+`included:` whitelist, a query starting with `-`, a folder with spaces in its
+name, no matches, a bad regex, a binary file, a file over the 2 MiB preview
+cap, and repeated Search presses mid-search.
 
 For the preview highlighting, assert on the document rather than on pixels:
 walk the blocks, read `block.layout().formats()`, and collect the runs whose

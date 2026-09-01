@@ -34,6 +34,35 @@ EXIT_NO_MATCH = 1
 PDF_FILTER = "--filter=pdf:pdftotext -q % -"
 
 
+# What ugrep prints when it skipped one file and carried on: an encrypted or
+# corrupt archive, a directory it may not open, a file it may not read. These
+# are reports *about* a file, not failures of the search.
+#
+# They have to be told apart from a real error by their text, because the exit
+# status does not distinguish them and is not even consistent between builds:
+# for a tree holding an encrypted zip, ugrep 7.5.0 here exits 0 while another
+# machine's build exits 2 for the same tree. A genuine failure says
+# "ugrep: error:" or "invalid argument" instead, and a bad regex's message runs
+# on for two more lines that carry no marker at all — which is why this matches
+# per line and keeps everything it does not recognise.
+SKIPPED_FILE_NOTICES = ("warning:", "cannot decompress")
+
+
+def search_error(stderr: str) -> str:
+    """What in `stderr` is a real failure, with the skipped-file notes removed.
+
+    Empty means ugrep only complained about files it went on without, which is
+    the ordinary outcome of searching a tree containing a password-protected
+    archive and must not reach the user as an error.
+    """
+    kept = [
+        line
+        for line in stderr.splitlines()
+        if line.strip() and not any(note in line for note in SKIPPED_FILE_NOTICES)
+    ]
+    return "\n".join(kept)
+
+
 def ugrep_available() -> bool:
     """Whether ugrep is on PATH. Checked at startup — nothing works without it."""
     return shutil.which("ugrep") is not None
