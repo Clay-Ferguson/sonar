@@ -12,6 +12,7 @@ straightforward here.
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 
@@ -64,6 +65,61 @@ def build_argv(query: str, folder: str) -> list[str]:
     argv.extend(search_globs())
     argv.extend(["--", query, folder])
     return argv
+
+
+# What a Boolean query's operators look like, and the characters that make an
+# unquoted term a regex rather than a word. Both are needed by
+# `literal_query_term()` below and nowhere else.
+QUERY_OPERATORS = {"AND", "OR", "NOT"}
+REGEX_METACHARACTERS = set(".^$*+?()[]{}|\\")
+
+
+def literal_query_term(query: str) -> str | None:
+    """One plain string out of a Boolean query, or None if it has none.
+
+    For the PDF pane, whose search (Qt's, hence pdfium's) takes a single
+    literal string and knows nothing about regexes, AND/OR or negation. This
+    picks the first term of `query` that survives translation:
+
+      "hello world" foo  -> hello world   (a quoted phrase is already literal)
+      cat dog            -> cat           (the first of an AND, not both)
+      -secret cat        -> cat           (a negated term matches nothing here)
+      col(o|ou)r         -> None          (a regex, not a word)
+
+    Terms are dropped rather than approximated, and None is an ordinary
+    answer: the caller renders the PDF with no highlighting at all, the same
+    as a file ugrep found nothing in. Approximating would be worse — a regex
+    searched literally would mark text the search never matched.
+
+    Only the *first* survivor: the search model highlights one string, so a
+    two-term AND marks one of the two. That is the known limit of this.
+    """
+    try:
+        # posix=False so the quotes stay on the token: whether a term was
+        # quoted is exactly what decides if it is literal, and posix mode
+        # strips that evidence away.
+        parts = shlex.split(query, posix=False)
+    except ValueError:
+        # An unbalanced quote. ugrep may still have made sense of it; this
+        # cannot, and "no highlighting" is the honest answer.
+        return None
+
+    for part in parts:
+        # Parentheses group terms in Boolean mode, so a leading or trailing
+        # one belongs to the query rather than to the term.
+        token = part.strip("()")
+        if not token or token in QUERY_OPERATORS:
+            continue
+        if token[0] in "-!":  # negated: it is what the file must *not* contain
+            continue
+        quoted = len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'"
+        term = token[1:-1] if quoted else token
+        if not term:
+            continue
+        if not quoted and set(term) & REGEX_METACHARACTERS:
+            continue
+        return term
+    return None
 
 
 # Line, column and the matched text, one match per output line. `%k` is a

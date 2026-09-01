@@ -31,14 +31,32 @@ PATH_PLACEHOLDER = "%s"
 # out a document nobody is going to read top to bottom anyway.
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 
+# The one extension the app treats specially, named once: the preview pane
+# renders these itself (see `pdfview.py`) and Open sends them to the system
+# rather than to the configured editor. Two behaviors, one answer to "is this
+# a PDF".
+PDF_SUFFIX = ".pdf"
+
 # File types the configured editor is the wrong tool for, and the command
 # they go to instead. `xdg-open` is the freedesktop way to ask "open this
 # with whatever is registered for it", so the file lands in the same viewer
 # double-clicking it in a file manager would use. It is deliberately not a
 # config key: the point of it is that the *system* decides, and a second
 # configurable command would only give the user another one to get wrong.
-SYSTEM_OPEN_EXTENSIONS = {".pdf"}
+SYSTEM_OPEN_EXTENSIONS = {PDF_SUFFIX}
 SYSTEM_OPEN_COMMAND = "xdg-open"
+
+
+def is_pdf(path: str) -> bool:
+    """Whether `path` is a PDF, by extension.
+
+    By name rather than by sniffing the file's header: the caller is deciding
+    which pane to show before anything has been opened, and a PDF that does
+    not parse is reported by the viewer that tried, which says more than a
+    silent fall back to "binary file" would.
+    """
+    return os.path.splitext(path)[1].lower() == PDF_SUFFIX
+
 
 # How much of the file is examined for the binary check. A NUL in the first
 # few KiB is what separates text from everything else in practice, and it is
@@ -61,10 +79,11 @@ def read_for_preview(path: str) -> tuple[str, bool]:
 
     The caller uses the flag only to style the pane; both cases are just text.
 
-    Binary files — PDFs among them — are named as such rather than shown.
-    SonarEx searches inside PDFs (ugrep extracts their text through a filter),
-    so a PDF legitimately appears in the results list; it just has nothing
-    useful to display here.
+    Binary files are named as such rather than shown. PDFs used to be the
+    galling case of that — ugrep searches inside them, so one turns up in the
+    results and then had nothing to show — and they no longer reach here at
+    all: `pdfview.PdfPane` renders them, and this is only their fallback for
+    when it cannot.
     """
     try:
         size = os.path.getsize(path)

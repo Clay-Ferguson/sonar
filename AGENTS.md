@@ -52,7 +52,17 @@ the query only ever comes from the window.
   second, much smaller ugrep call: one named file, `-o -u`, and a `--format`
   that reports where the query matched inside it. That one is synchronous —
   ~16ms at the preview's size cap, so it does not need a `QProcess` — and it
-  answers `{}` rather than raising on any failure.
+  answers `{}` rather than raising on any failure. `literal_query_term()`
+  also lives here, because it is about the query language rather than about
+  PDFs: it reduces a Boolean query to one plain string for Qt's PDF search,
+  which knows no regexes, no AND/OR and no negation.
+- `sonarex/pdfview.py` — `PdfPane`, the *other* preview: a `QPdfView` that
+  renders a PDF instead of describing it as a binary file. `QtPdf` ships in
+  the PyQt6 wheel with its own pdfium, so this costs no dependency; the import
+  is still guarded, and `PDF_AVAILABLE` false means a PDF falls back to the
+  binary notice rather than the app failing. `show_file()` loads and returns a
+  message on failure; `count()`/`go_to()` are what Prev/Next drive. The
+  matches are marked by `QPdfView` itself, in colors of its own.
 - `sonarex/highlight.py` — `MatchHighlighter`, the `QSyntaxHighlighter` that
   paints those spans onto the preview, one of them in a hotter color as the
   current match. It knows nothing about the query; it only colors the ranges
@@ -61,7 +71,10 @@ the query only ever comes from the window.
   label, and the end-of-search sort. Also the Prev/Next walk: `_adopt_matches()`
   flattens the spans into reading order on `self._matches`, and
   `_go_to_match()` is the single place that moves `self._match_index`, marks
-  the highlighter, scrolls, and refreshes the counter.
+  the highlighter, scrolls, and refreshes the counter. The preview is a
+  `QStackedWidget` of two panes — the text one and `PdfPane` — and
+  `_pdf_showing` says which is up; `_match_total()` and the one branch in
+  `_go_to_match()` are all Prev/Next needs to work over either.
 - `sonarex/style.py` — the shared look: `action_button_style()`, the wider
   scroll bars, `tune_palette()`, `mono_font()`. It exists so a dialog can
   match the window's controls without importing `window`, which opens the
@@ -79,7 +92,8 @@ the query only ever comes from the window.
   `SYSTEM_OPEN_EXTENSIONS` (`.pdf`) skip the config key and go to
   `SYSTEM_OPEN_COMMAND` (`xdg-open`) instead, so they land in whatever the
   desktop has registered for them; only the command and the error hint differ,
-  the spawn is the same.
+  the spawn is the same. `is_pdf()` is the one answer to "is this a PDF",
+  shared by that and by the window's choice of preview pane.
 
 ## Things that will bite you
 
@@ -142,9 +156,37 @@ the query only ever comes from the window.
 
 - **`--filter` runs without a shell.** ugrep executes a filter command
   directly, so `PDF_FILTER` can contain no pipes or redirection — hence
-  `pdftotext -q % -` rather than a shell one-liner. The PDF path is written
-  against documented behavior and has **not** been exercised; treat it as
-  unverified.
+  `pdftotext -q % -` rather than a shell one-liner. Exercised: a search for
+  `font` over a folder of PDFs returns them, so the filter path works with
+  pdftotext 25.x.
+
+- **`QPdfView.setCurrentSearchResultIndex()` does not scroll.** It marks the
+  result and nothing else — measured, the scroll bar stays at 0 for a hit
+  thirteen pages down. Scrolling is a separate
+  `pageNavigator().jump(link.page(), link.location())`, which is why
+  `PdfPane.go_to()` does both, jump first.
+
+- **`QPdfView`'s match colors cannot be changed** — a pale blue wash, and
+  opaque cyan for the current hit. They are compiled in, not taken from the
+  palette (confirmed: re-rendering with Highlight set to red moves not one
+  pixel). Painting the marks in this app's own yellow was tried and reverted:
+  it means withholding the search model from the view and reimplementing its
+  private page layout, since there is no page-to-viewport mapping in the
+  public API — a lot of fragile geometry for a color.
+
+- **A `QPdfSearchModel`'s count arrives over time.** Pages are searched
+  lazily: on a 26-page file the count climbed 1 → 16 → 26 → 44 across about a
+  second. So the counter is driven by `countChanged` (`_on_pdf_count_changed`)
+  rather than read once at load, "1 of n" legitimately has n grow while the
+  user watches, and any index has to be re-checked against the count of the
+  moment — an early Next can outrun the search.
+
+- **Qt's PDF search is one literal string.** No regex, no AND/OR, no
+  negation, which is most of what an ugrep query can be. `literal_query_term()`
+  drops what it cannot translate rather than approximating it — a regex
+  searched literally would mark text the search never matched — and returning
+  None is ordinary: the PDF renders with Prev/Next dim, exactly like a file
+  with no matches.
 - **Saving the config rewrites the whole file.** `render_config()` re-emits
   the comments along with the two lists, precisely because a first-run
   template would mean the explanations survived until the first Save and then
@@ -247,6 +289,20 @@ covering: a line carrying two hits (two stops, not one), wrapping off either
 end, that switching files restarts the count, and that a notice or a fresh
 search leaves the buttons dim and the counter blank.
 
+For the PDF pane, assert on the objects rather than on pixels: `_pdf_showing`
+and `_panes.currentWidget()` say which pane is up, `match_label.text()` is the
+counter, and `pdf.verticalScrollBar().value()` moving is what proves a jump
+actually happened — that last one is the check that catches
+`setCurrentSearchResultIndex()`'s non-scrolling from being "simplified" back
+in. Spin a `QEventLoop` for a second or so after selecting a PDF, or the count
+is still climbing when the assertion runs. `/usr/share/texmf/doc/fonts/lm/lm-info.pdf`
+is a 26-page file with ~50 hits for `font`; truncating it makes a corrupt one.
+Worth covering: a query with no literal term (`col(o|ou)r`, `-font`) — renders,
+nav dim; a corrupt or vanished PDF — falls back to the text pane with the
+message; switching PDF → text → PDF, where each pane must re-adopt its own
+matches and Word Wrap must follow; wrapping off both ends; and Open on a PDF,
+which still spawns `xdg-open`.
+
 The settings dialog is drivable the same way — `SettingsDialog()` constructs
 without the main window, and `_save()` can be called directly instead of
 clicking. Point `config.CONFIG_PATH` at a temp file first: it is read at call
@@ -263,6 +319,12 @@ touches the real `~/.config`.
   takes the direction as its argument.
 - Stepping between *files* from the preview. Prev/Next stop at the ends of the
   current file and wrap rather than rolling into the next result.
+- Highlighting more than one term in a PDF. `literal_query_term()` returns the
+  first translatable term and the search model takes one string, so `cat dog`
+  marks the `cat`s. Every term would mean a model per term and a counter that
+  sums across them.
+- Zoom and page controls for the PDF pane. It opens fit-to-width and scrolls;
+  `QPdfPageSelector` and `setZoomFactor()` are there when they are wanted.
 - Single-instance / tabbed behavior.
 
 ## Working in this repo

@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -30,7 +31,14 @@ from PyQt6.QtWidgets import (
 from . import APP_NAME
 from .help import help_icon, show_help
 from .highlight import MatchHighlighter
-from .search import EXIT_MATCHED, EXIT_NO_MATCH, SearchRunner, match_spans
+from .pdfview import PDF_AVAILABLE, PdfPane
+from .search import (
+    EXIT_MATCHED,
+    EXIT_NO_MATCH,
+    SearchRunner,
+    literal_query_term,
+    match_spans,
+)
 from .settings import settings_icon, show_settings
 from .style import (
     CONTROL_BAR_PADDING,
@@ -48,7 +56,7 @@ from .style import (
     selection_button_bg,
     splitter_style,
 )
-from .viewer import open_in_editor, read_for_preview
+from .viewer import is_pdf, open_in_editor, read_for_preview
 
 # The absolute path of the file a row stands for. The row's *text* is only the
 # part below the searched folder, so it is not a usable path on its own —
@@ -87,6 +95,10 @@ class MainWindow(QWidget):
         # is keyed for painting a line, this is ordered for walking the file.
         self._matches: list[tuple[int, int, int]] = []
         self._match_index = -1
+        # Which of the two preview widgets is up. The PDF pane keeps its own
+        # matches inside Qt's search model, so this is also what says where
+        # Prev/Next should be reading its count from.
+        self._pdf_showing = False
 
         layout = QVBoxLayout(self)
 
@@ -204,6 +216,19 @@ class MainWindow(QWidget):
         # document survives setPlainText, so this outlives every preview.
         self._highlighter = MatchHighlighter(self.preview.document())
 
+        # The other preview: a rendered PDF, for the files the text pane can
+        # only describe. None when the QtPdf bindings are missing, in which
+        # case a PDF falls back to that description — the app still runs.
+        self._pdf = PdfPane() if PDF_AVAILABLE else None
+        self._panes = QStackedWidget()
+        self._panes.addWidget(self.preview)
+        if self._pdf is not None:
+            self._panes.addWidget(self._pdf)
+            # The model searches pages lazily, so the number of matches climbs
+            # for about a second after a long PDF opens. The counter has to
+            # follow it up rather than freeze on whatever it was at load.
+            self._pdf.matchCountChanged.connect(self._on_pdf_count_changed)
+
         # --- the preview's own control bar -------------------------------
         # Sits inside the right-hand pane rather than under the whole window,
         # so it reads as belonging to the file being shown above it — and so
@@ -256,7 +281,7 @@ class MainWindow(QWidget):
         # divider is inside the preview and the control bar instead, so it is
         # drawn in their own background rather than the window's.
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(self.preview, 1)
+        right_layout.addWidget(self._panes, 1)
         right_layout.addLayout(control_bar)
 
         # Both panes get the wider bars; applied per scroll bar so the list
@@ -325,6 +350,7 @@ class MainWindow(QWidget):
             return
 
         self.results.clear()
+        self._show_pane(False)
         self.preview.clear()
         self._match_count = 0
         # Pinned here, for the whole life of these results: the same value
@@ -459,6 +485,24 @@ class MainWindow(QWidget):
 
     # -- preview -----------------------------------------------------------
 
+    def _show_pane(self, pdf: bool) -> None:
+        """Put either the PDF pane or the text pane in front.
+
+        Leaving the PDF pane also lets go of its document, so a file stays
+        open only while it is the one being read.
+
+        Word Wrap goes with the text pane: a rendered page has no line
+        wrapping to turn off, and a checkbox that does nothing to what is on
+        screen is worse than a dim one.
+        """
+        if self._pdf is None:
+            return
+        if self._pdf_showing and not pdf:
+            self._pdf.clear()
+        self._pdf_showing = pdf
+        self._panes.setCurrentWidget(self._pdf if pdf else self.preview)
+        self.wrap_check.setEnabled(not pdf)
+
     def _set_word_wrap(self, wrap: bool) -> None:
         """Toggle wrapping in the preview pane.
 
@@ -508,6 +552,7 @@ class MainWindow(QWidget):
         # Open acts on the current row, so it is live exactly when one exists.
         self.open_button.setEnabled(current is not None)
         if current is None:
+            self._show_pane(False)
             self.preview.clear()
             # Clearing the pane has to clear what the pane was about, or Prev
             # and Next stay live over a document that no longer has the matches
@@ -516,6 +561,24 @@ class MainWindow(QWidget):
             self._adopt_matches({})
             return
         path = current.data(PATH_ROLE)
+
+        # A PDF is rendered rather than described — but only if it renders:
+        # a failure comes back as a message, which the text pane then shows
+        # in place of the "binary file" notice it would have shown anyway.
+        text = None
+        if self._pdf is not None and is_pdf(path):
+            text = self._pdf.show_file(path, literal_query_term(self._search_query))
+            if text is None:
+                self._show_pane(True)
+                self._adopt_pdf_matches()
+                return
+        self._show_pane(False)
+        if text is not None:
+            self._highlighter.set_spans({})
+            self.preview.setPlainText(text)
+            self._adopt_matches({})
+            return
+
         text, is_notice = read_for_preview(path)
         # A notice — binary, too large, unreadable — is this app's own words
         # rather than the file, so there is nothing in it ugrep matched and its
@@ -556,14 +619,49 @@ class MainWindow(QWidget):
             self._update_match_nav()
             self.preview.moveCursor(self.preview.textCursor().MoveOperation.Start)
 
+    def _adopt_pdf_matches(self) -> None:
+        """The PDF pane's equivalent: its matches live in Qt's search model.
+
+        There is no list to flatten — the model is the list, and it is still
+        filling in — so this only resets the position and lands on match 1 if
+        there is one yet. If there is not, `_on_pdf_count_changed` does it
+        when the first one turns up.
+        """
+        self._matches = []
+        self._match_index = -1
+        if self._match_total():
+            self._go_to_match(0)
+        else:
+            self._update_match_nav()
+
+    def _on_pdf_count_changed(self) -> None:
+        """The PDF's match count grew (or the file changed under it)."""
+        if not self._pdf_showing:
+            return
+        if self._match_index < 0 and self._match_total():
+            self._go_to_match(0)
+        else:
+            self._update_match_nav()
+
+    def _match_total(self) -> int:
+        """How many matches the file on screen has, whichever pane shows it."""
+        if self._pdf_showing and self._pdf is not None:
+            return self._pdf.count()
+        return len(self._matches)
+
     def _step_match(self, delta: int) -> None:
         """Move `delta` matches from the current one, wrapping at either end."""
-        if self._matches:
-            self._go_to_match((self._match_index + delta) % len(self._matches))
+        total = self._match_total()
+        if total:
+            self._go_to_match((self._match_index + delta) % total)
 
     def _go_to_match(self, index: int) -> None:
         """Make match `index` current: mark it, scroll to it, and count it."""
         self._match_index = index
+        if self._pdf_showing and self._pdf is not None:
+            self._pdf.go_to(index)
+            self._update_match_nav()
+            return
         line, column, _length = self._matches[index]
         self._highlighter.set_current((line, column))
         block = self.preview.document().findBlockByNumber(line)
@@ -579,7 +677,7 @@ class MainWindow(QWidget):
 
     def _update_match_nav(self) -> None:
         """Sync the two buttons and the counter to the current match."""
-        total = len(self._matches)
+        total = self._match_total()
         self.prev_button.setEnabled(total > 0)
         self.next_button.setEnabled(total > 0)
         # Blank rather than "0 of 0" when there is nothing to step through: the
