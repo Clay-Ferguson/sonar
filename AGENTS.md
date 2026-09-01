@@ -75,7 +75,11 @@ the query only ever comes from the window.
   Always returns a string, never raises. Also `open_in_editor()`, which runs
   `open.command` from the config — `build_open_argv()` is the split-and-place
   rule, and every failure comes back as a message naming the command, since
-  the command is now something the user typed.
+  the command is now something the user typed. Extensions in
+  `SYSTEM_OPEN_EXTENSIONS` (`.pdf`) skip the config key and go to
+  `SYSTEM_OPEN_COMMAND` (`xdg-open`) instead, so they land in whatever the
+  desktop has registered for them; only the command and the error hint differ,
+  the spawn is the same.
 
 ## Things that will bite you
 

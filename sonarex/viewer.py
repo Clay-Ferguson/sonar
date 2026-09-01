@@ -8,7 +8,8 @@ where a traceback would take the window down.
 `open_in_editor` hands the file to a real editor, for when reading it here
 isn't enough. Which editor is a config key (`open.command`), read at the
 moment of the click, so changing it in the settings dialog takes effect on
-the next Open rather than the next run.
+the next Open rather than the next run. PDFs bypass that key entirely and go
+to the desktop's default application instead.
 """
 
 from __future__ import annotations
@@ -29,6 +30,15 @@ PATH_PLACEHOLDER = "%s"
 # text, and loading tens of megabytes into it stalls the GUI thread laying
 # out a document nobody is going to read top to bottom anyway.
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
+
+# File types the configured editor is the wrong tool for, and the command
+# they go to instead. `xdg-open` is the freedesktop way to ask "open this
+# with whatever is registered for it", so the file lands in the same viewer
+# double-clicking it in a file manager would use. It is deliberately not a
+# config key: the point of it is that the *system* decides, and a second
+# configurable command would only give the user another one to get wrong.
+SYSTEM_OPEN_EXTENSIONS = {".pdf"}
+SYSTEM_OPEN_COMMAND = "xdg-open"
 
 # How much of the file is examined for the binary check. A NUL in the first
 # few KiB is what separates text from everything else in practice, and it is
@@ -69,7 +79,7 @@ def read_for_preview(path: str) -> tuple[str, bool]:
             head = handle.read(SNIFF_BYTES)
             if b"\x00" in head:
                 return (
-                    f"Binary file — cannot preview.\n\n{path}\n\n{_human_size(size)}",
+                    f"Binary file — cannot preview.",
                     True,
                 )
             if size > MAX_PREVIEW_BYTES:
@@ -143,12 +153,21 @@ def build_open_argv(command: str, path: str) -> list[str]:
 def open_in_editor(path: str) -> str | None:
     """Open `path` with the configured command. An error message, or None.
 
+    PDFs are the exception: the configured command is a text editor, and a
+    text editor shows a PDF as the binary it is. Those go to `xdg-open`
+    instead, which hands the file to whatever the desktop has registered for
+    it — the same thing double-clicking it in a file manager would do. The
+    rest of this function is unchanged either way, since the difference is
+    only which command runs.
+
     An error is returned rather than raised so the caller can show it: failing
     to open a file is worth saying, but not worth an exception out of a button
     handler. Every way this can go wrong — a command that will not parse, a
     program that is not installed, a spawn that fails — comes back as a
-    string naming the command, since the command is now something the user
-    typed and can go back and fix.
+    string naming the command. For the configured command that message also
+    says where to fix it, since it is something the user typed; for the
+    system opener there is nothing to fix in the dialog, so it says where the
+    file was being sent instead.
 
     The program is checked on PATH first, so a missing one is reported as the
     missing program it is instead of a bare OSError from the spawn.
@@ -160,13 +179,22 @@ def open_in_editor(path: str) -> str | None:
     if not os.path.exists(path):
         return f"Cannot open — the file no longer exists:\n{path}"
 
-    command = open_command()
+    if os.path.splitext(path)[1].lower() in SYSTEM_OPEN_EXTENSIONS:
+        command = SYSTEM_OPEN_COMMAND
+        hint = (
+            f"\n\nThis file type is opened with the system default "
+            f"application, through '{SYSTEM_OPEN_COMMAND}'."
+        )
+    else:
+        command = open_command()
+        hint = "\n\nChange the Open command with the gear button."
+
     try:
         argv = build_open_argv(command, path)
     except ValueError as exc:
         return (
             f"The Open command cannot be run as written:\n\n    {command}\n\n"
-            f"{exc}\n\nFix it with the gear button."
+            f"{exc}{hint}"
         )
 
     program = argv[0]
@@ -175,14 +203,13 @@ def open_in_editor(path: str) -> str | None:
         if resolved is None:
             return (
                 f"Cannot open '{os.path.basename(path)}': "
-                f"'{program}' is not on PATH.\n\n"
-                "Change the Open command with the gear button."
+                f"'{program}' is not on PATH.{hint}"
             )
         argv[0] = resolved
     elif not os.path.exists(program):
         return (
-            f"Cannot open '{os.path.basename(path)}': {program} is not installed.\n\n"
-            "Change the Open command with the gear button."
+            f"Cannot open '{os.path.basename(path)}': "
+            f"{program} is not installed.{hint}"
         )
 
     try:

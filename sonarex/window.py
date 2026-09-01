@@ -104,9 +104,6 @@ class MainWindow(QWidget):
 
         # --- query row ---------------------------------------------------
         self.query_edit = QLineEdit()
-        self.query_edit.setPlaceholderText(
-            'Search for…   (space = all terms, OR = any, "quoted" = exact phrase, - = exclude)'
-        )
         self.query_edit.returnPressed.connect(self.start_search)
         self.search_button = QPushButton("Search")
         self.search_button.setStyleSheet(
