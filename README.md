@@ -57,6 +57,27 @@ described instead of loaded.
 **Open** hands the selected file to a real editor — VS Code by default, or
 whatever command you set in the settings dialog.
 
+### Searching inside archives
+
+Turn on **Search inside archives** in the settings dialog and a search also
+looks into `.zip`, `.tar`, `.tar.gz`, `.7z`, `.gz` and the other formats ugrep
+can decompress. A match inside one is listed as `archive.zip → path/inside.txt`
+and reads in the preview pane like any other file, with the same highlighting
+and Prev/Next. **Open** extracts it to a read-only temporary copy — edits to
+that copy do not go back into the archive.
+
+Two things to know. The `included` patterns then apply to the files *inside* an
+archive as well, so a whitelist of `["*.md"]` finds the `.md` files in a zip
+and nothing else in it. And archives with an unusual extension — `.jar`,
+`.docx` and `.epub` are all really zips — are only opened if you add that
+extension to `included` yourself.
+
+It is off by default because it changes what an ordinary search returns rather
+than merely adding to it: every compressed file on the system becomes
+searchable text. Archives that are password-protected or corrupt are skipped
+without comment. PDFs and other binaries inside an archive are found and
+listed, but the preview names them rather than showing them.
+
 ## Query syntax
 
 Queries run in ugrep's Boolean mode (`-%`) at whole-file scope (`--files`),
@@ -85,6 +106,7 @@ search:
   excluded:
     - "*/node_modules/*"
     - "*/.git/*"
+  archives: false       # look inside .zip, .tar.gz, .7z, .gz …
 
 open:
   command: "/usr/bin/code"
@@ -92,10 +114,11 @@ open:
 
 `excluded` skips the directories nobody means to search. `included` is a
 whitelist — leave it empty unless you want to search *only* certain file
-types, since any entry hides everything else. `open.command` is what the Open
-button runs; the file is added as the last argument.
+types, since any entry hides everything else. `archives` is the Search
+Archives checkbox (see below). `open.command` is what the Open button runs;
+the file is added as the last argument.
 
-Edit all three from the gear button in the top row — one pattern per line in
+Edit all four from the gear button in the top row — one pattern per line in
 each list — or open the file directly. Either way the change applies the next
 time it is used, with no restart. See [docs/CONFIG.md](docs/CONFIG.md) for the
 full reference.

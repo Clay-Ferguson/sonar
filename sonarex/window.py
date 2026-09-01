@@ -30,6 +30,8 @@ from PyQt6.QtWidgets import (
 )
 
 from . import APP_NAME
+from .archive import Hit, parse_result_line
+from .config import search_archives
 from .help import show_help
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
@@ -56,12 +58,26 @@ from .style import (
     selection_button_bg,
     splitter_style,
 )
-from .viewer import is_pdf, open_in_editor, read_for_preview
+from .viewer import cleanup_temp_files, is_pdf, open_in_editor, read_for_preview
 
-# The absolute path of the file a row stands for. The row's *text* is only the
-# part below the searched folder, so it is not a usable path on its own —
-# everything that opens or stats a file must read this role instead.
-PATH_ROLE = Qt.ItemDataRole.UserRole
+# The `Hit` a row stands for: an absolute path, plus a name inside it when the
+# result came out of an archive. The row's *text* is only the part below the
+# searched folder, so it is not a usable path on its own — everything that
+# opens, stats or previews a file must read this role instead.
+#
+# One role rather than a path role and a member role beside it: they are never
+# meaningful apart, and two roles would have to be kept in step everywhere a
+# row is built, which `_sort_by_mtime` does all over again from scratch.
+HIT_ROLE = Qt.ItemDataRole.UserRole
+
+# The Open button's tooltip, which changes with the selection: a hit inside an
+# archive opens a copy, and that is worth saying before the click rather than
+# after the user has edited one and found the archive unchanged.
+OPEN_TIP = "Open this file in the editor"
+OPEN_TIP_ARCHIVED = (
+    "Open a read-only copy extracted from the archive.\n"
+    "Edits to it do not go back into the archive."
+)
 
 # Results/preview split, as a ratio of the window width. The preview needs the
 # room; the list only has to show a path.
@@ -89,6 +105,11 @@ class MainWindow(QMainWindow):
         # highlighting in the preview must keep meaning the search that found
         # these files rather than whatever has since been typed over it.
         self._search_query = ""
+        # Pinned at the start of a search alongside the root and the query,
+        # because it decides how a result is *read* as well as how it was
+        # found: clearing the checkbox mid-session must not turn the rows
+        # already on screen into files nothing can open.
+        self._search_archives = False
         # The current file's matches, flattened out of the spans dict and put in
         # reading order, plus where Prev/Next is parked in that list. A flat
         # list rather than the dict because stepping is what it is for: the dict
@@ -207,7 +228,7 @@ class MainWindow(QMainWindow):
         self.open_button = action_button(
             "Open", selection_button_bg(), CONTROL_BAR_PADDING
         )
-        self.open_button.setToolTip("Open this file in the editor")
+        self.open_button.setToolTip(OPEN_TIP)
         # Nothing is selected at startup, and "Open" with no file would be a
         # button that silently does nothing.
         self.open_button.setEnabled(False)
@@ -355,6 +376,7 @@ class MainWindow(QMainWindow):
         # and `_display_path` can rely on the prefix matching.
         self._search_root = folder
         self._search_query = query
+        self._search_archives = search_archives()
         self._set_title("Searching…")
         self._runner.start(query, folder)
 
@@ -387,23 +409,34 @@ class MainWindow(QMainWindow):
             return path
         return relative
 
-    def _make_item(self, path: str) -> QListWidgetItem:
-        """A row for `path`: relative label, absolute path underneath.
+    def _make_item(self, hit: Hit) -> QListWidgetItem:
+        """A row for `hit`: relative label, the whole `Hit` underneath.
 
-        The absolute path lives in `PATH_ROLE`, and everything that opens or
-        stats a file reads it from there — never from the row's text, which is
-        now only part of a path and is a display detail besides.
+        The `Hit` lives in `HIT_ROLE`, and everything that opens, stats or
+        previews a file reads it from there — never from the row's text, which
+        is now only part of a path and is a display detail besides.
+
+        A hit inside an archive is labelled `archive.zip → name`, with the
+        arrow rather than ugrep's own `archive.zip{name}` because the braces
+        read as part of a filename at a glance and the arrow does not. The
+        tooltip splits the two over separate lines, which is the one place the
+        full archive path and the full member name are both visible.
         """
-        item = QListWidgetItem(self._display_path(path))
-        item.setData(PATH_ROLE, path)
+        label = self._display_path(hit.path)
+        tooltip = hit.path
+        if hit.member:
+            label = f"{label} → {hit.member}"
+            tooltip = f"{hit.member}\ninside {hit.path}"
+        item = QListWidgetItem(label)
+        item.setData(HIT_ROLE, hit)
         # The full path stays reachable, since the row no longer shows it.
-        item.setToolTip(path)
+        item.setToolTip(tooltip)
         return item
 
     # -- search callbacks --------------------------------------------------
 
-    def _on_match(self, path: str) -> None:
-        self.results.addItem(self._make_item(path))
+    def _on_match(self, line: str) -> None:
+        self.results.addItem(self._make_item(parse_result_line(line)))
         self._match_count += 1
         # Cheap enough to do per hit, and it is the only sign the search is
         # still making progress on a long run.
@@ -440,25 +473,34 @@ class MainWindow(QMainWindow):
         end: they can no longer be previewed, so a row for one is a dead
         entry. Any other failure leaves ugrep's ordering untouched, which is
         a worse order but never a wrong one.
+
+        The time stat'd for a hit inside an archive is the archive's own, so
+        every member of one shares a key. `sort` is stable, which is what
+        keeps them in the order ugrep found them and grouped under the archive
+        they came from rather than shuffled among each other.
         """
         if self.results.count() < 2:
             return
 
         selected = self.results.currentItem()
-        selected_path = selected.data(PATH_ROLE) if selected else None
+        selected_hit = selected.data(HIT_ROLE) if selected else None
 
-        dated: list[tuple[float, str]] = []
+        dated: list[tuple[float, Hit]] = []
         try:
             for row in range(self.results.count()):
-                path = self.results.item(row).data(PATH_ROLE)
+                hit = self.results.item(row).data(HIT_ROLE)
                 try:
-                    dated.append((os.stat(path).st_mtime, path))
+                    dated.append((os.stat(hit.path).st_mtime, hit))
                 except OSError:
                     continue  # vanished since the search; drop the row
         except Exception as exc:  # pragma: no cover - defensive
             print(f"Sonar: could not sort results: {exc}")
             return
 
+        # By the time only: sorting on the whole tuple would fall through to
+        # comparing hits whenever two share a time, which is now the ordinary
+        # case rather than a tie-break, and would scatter an archive's members
+        # into alphabetical order.
         dated.sort(key=lambda pair: pair[0], reverse=True)
 
         # Rebuilding the rows resets the selection, so it is restored below;
@@ -466,17 +508,17 @@ class MainWindow(QMainWindow):
         # a preview the user was already reading.
         self.results.blockSignals(True)
         self.results.clear()
-        for _, path in dated:
-            self.results.addItem(self._make_item(path))
+        for _, hit in dated:
+            self.results.addItem(self._make_item(hit))
         self.results.blockSignals(False)
 
         self._match_count = self.results.count()
         # Signals were blocked across the rebuild, so the button's state was
         # not refreshed by the clear; put it back in step with the list.
         self.open_button.setEnabled(False)
-        if selected_path:
+        if selected_hit:
             for row in range(self.results.count()):
-                if self.results.item(row).data(PATH_ROLE) == selected_path:
+                if self.results.item(row).data(HIT_ROLE) == selected_hit:
                     self.results.setCurrentRow(row)
                     break
 
@@ -517,13 +559,15 @@ class MainWindow(QMainWindow):
     def _open_selected(self) -> None:
         """Hand the selected file to the editor.
 
-        The path comes from PATH_ROLE, not the row's text, which is only the
-        part below the search root.
+        The `Hit` comes from HIT_ROLE, not the row's text, which is only the
+        part below the search root. One naming a file inside an archive is
+        extracted to a read-only copy first; `viewer` does that, since it is
+        the same decision as which command to run.
         """
         item = self.results.currentItem()
         if item is None:
             return
-        error = open_in_editor(item.data(PATH_ROLE))
+        error = open_in_editor(item.data(HIT_ROLE))
         if error:
             self._report_problem(error)
 
@@ -547,6 +591,7 @@ class MainWindow(QMainWindow):
         # Open acts on the current row, so it is live exactly when one exists.
         self.open_button.setEnabled(current is not None)
         if current is None:
+            self.open_button.setToolTip(OPEN_TIP)
             self._show_pane(False)
             self.preview.clear()
             # Clearing the pane has to clear what the pane was about, or Prev
@@ -555,14 +600,19 @@ class MainWindow(QMainWindow):
             self._highlighter.set_spans({})
             self._adopt_matches({})
             return
-        path = current.data(PATH_ROLE)
+        hit = current.data(HIT_ROLE)
+        self.open_button.setToolTip(OPEN_TIP_ARCHIVED if hit.member else OPEN_TIP)
 
         # A PDF is rendered rather than described — but only if it renders:
         # a failure comes back as a message, which the text pane then shows
         # in place of the "binary file" notice it would have shown anyway.
+        #
+        # A PDF *inside* an archive is not one of these: `PdfPane` loads a
+        # path, and there is no path to a name inside a zip. It falls through
+        # to the text pane, which says so.
         text = None
-        if self._pdf is not None and is_pdf(path):
-            text = self._pdf.show_file(path, literal_query_term(self._search_query))
+        if self._pdf is not None and not hit.member and is_pdf(hit.path):
+            text = self._pdf.show_file(hit.path, literal_query_term(self._search_query))
             if text is None:
                 self._show_pane(True)
                 self._adopt_pdf_matches()
@@ -574,7 +624,7 @@ class MainWindow(QMainWindow):
             self._adopt_matches({})
             return
 
-        text, is_notice = read_for_preview(path)
+        text, is_notice = read_for_preview(hit, self._search_archives)
         # A notice — binary, too large, unreadable — is this app's own words
         # rather than the file, so there is nothing in it ugrep matched and its
         # line numbers mean nothing. Asking ugrep about it would also be asking
@@ -582,7 +632,7 @@ class MainWindow(QMainWindow):
         spans = (
             {}
             if is_notice or not self._search_query
-            else match_spans(self._search_query, path)
+            else match_spans(self._search_query, hit, self._search_archives)
         )
         # Before setPlainText, not after: replacing the text is itself what
         # makes Qt run the highlighter over the document, so spans set first
@@ -686,4 +736,8 @@ class MainWindow(QMainWindow):
         # Without this a search still running when the window closes leaves an
         # orphaned ugrep walking the tree.
         self._runner.stop()
+        # And without this, every archive member opened this session is still
+        # sitting in /tmp. An editor holding one open keeps its own buffer, so
+        # removing it here costs the user nothing.
+        cleanup_temp_files()
         super().closeEvent(event)

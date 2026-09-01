@@ -54,6 +54,13 @@ DEFAULT_EXCLUDED = [
     "*/.nuxt/*",
 ]
 
+# Whether to search inside archives. Off, because turning it on changes what
+# an ordinary search returns rather than merely adding to it: every compressed
+# file becomes searchable text, and a `copyright` search over /usr/share/doc
+# goes from 2285 hits to 3548, nearly all of them gzipped documentation. That
+# is a fine thing to ask for and a surprising thing to be given.
+DEFAULT_ARCHIVES = False
+
 # The command the Open button runs when nothing else is configured. Carried
 # over from the Nautilus version, which spawned exactly this.
 DEFAULT_OPEN_COMMAND = "/usr/bin/code"
@@ -69,10 +76,11 @@ class Settings(NamedTuple):
 
     included: list[str]
     excluded: list[str]
+    archives: bool
     open_command: str
 
 
-DEFAULTS = Settings([], DEFAULT_EXCLUDED, DEFAULT_OPEN_COMMAND)
+DEFAULTS = Settings([], DEFAULT_EXCLUDED, DEFAULT_ARCHIVES, DEFAULT_OPEN_COMMAND)
 
 
 # The comment block at the top of the file, and the ones introducing each
@@ -107,6 +115,17 @@ INCLUDED_COMMENT = """\
 EXCLUDED_COMMENT = """\
   # Directories and files to skip. Written in find's -path style; Sonar
   # translates them into ugrep's glob syntax.
+"""
+
+ARCHIVES_COMMENT = """\
+  # Search inside .zip, .tar, .tar.gz, .7z, .gz and the other formats ugrep
+  # can decompress. A match inside one is listed as "archive.zip -> name".
+  #
+  # Note that "included" above then applies to the files INSIDE an archive as
+  # well, so a whitelist of ["*.md"] finds the .md files in a zip and nothing
+  # else in it. Archives whose extension ugrep does not know (.jar, .docx,
+  # .epub are all really zips) are only opened if you add that extension to
+  # "included" yourself.
 """
 
 
@@ -167,7 +186,9 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
     search = _section(config.get("search"))
     opening = _section(config.get("open"))
 
-    extra_search = {k: v for k, v in search.items() if k not in ("included", "excluded")}
+    extra_search = {
+        k: v for k, v in search.items() if k not in ("included", "excluded", "archives")
+    }
     extra_open = {k: v for k, v in opening.items() if k != "command"}
     extra_top = {k: v for k, v in config.items() if k not in ("search", "open")}
 
@@ -177,6 +198,9 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
         + _render_list("included", INCLUDED_COMMENT, settings.included)
         + "\n"
         + _render_list("excluded", EXCLUDED_COMMENT, settings.excluded)
+        + "\n"
+        + ARCHIVES_COMMENT
+        + f"  archives: {'true' if settings.archives else 'false'}\n"
         + _indent_yaml(extra_search, "  ")
         + "\nopen:\n"
         + OPEN_COMMENT
@@ -273,6 +297,21 @@ def get_string(config: dict, section: str, key: str, default: str) -> str:
     return value.strip()
 
 
+def get_bool(config: dict, section: str, key: str, default: bool) -> bool:
+    """`<section>.<key>` from `config` as a bool, else `default`.
+
+    Only a real YAML boolean counts. A string "true" is a typo rather than a
+    value, and guessing at it would mean a setting that looks set and is not —
+    worse than falling back to the default, which at least matches the
+    checkbox the dialog will show.
+    """
+    values = config.get(section)
+    if not isinstance(values, dict):
+        return default
+    value = values.get(key)
+    return value if isinstance(value, bool) else default
+
+
 def convert_excluded_pattern(pattern: str) -> str:
     """A find-style exclusion pattern as a ugrep `-g` glob.
 
@@ -319,6 +358,11 @@ def search_globs() -> list[str]:
     )
 
 
+def search_archives() -> bool:
+    """Whether searches should reach inside archives, read at the moment of use."""
+    return get_bool(load_config(), "search", "archives", DEFAULT_ARCHIVES)
+
+
 def open_command() -> str:
     """The Open button's command line — the one call the viewer needs.
 
@@ -358,6 +402,7 @@ def load_settings() -> tuple[Settings, str | None]:
         Settings(
             included=get_patterns(config, "included"),
             excluded=get_patterns(config, "excluded"),
+            archives=get_bool(config, "search", "archives", DEFAULT_ARCHIVES),
             open_command=get_string(config, "open", "command", DEFAULT_OPEN_COMMAND),
         ),
         error,

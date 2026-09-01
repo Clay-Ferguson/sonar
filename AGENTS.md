@@ -41,18 +41,32 @@ the query only ever comes from the window.
 - `sonarex/config.py` — the YAML config plus the glob translation it feeds.
   `Settings` is the file as a record and `load_settings()`/`save_settings()`
   are the dialog's whole interface to it; the rest of the app goes through the
-  two accessors instead, `search_globs()` for the ugrep argv and
-  `open_command()` for the editor, both read at the moment of use so a saved
-  change needs no restart and no notification. `convert_excluded_pattern()`
+  three accessors instead — `search_globs()` for the ugrep argv,
+  `search_archives()` for `-z`, `open_command()` for the editor — all read at
+  the moment of use so a saved change needs no restart and no notification.
+  `get_bool()` is the reader behind the third and the only one that takes a
+  non-string, non-list value. `convert_excluded_pattern()`
   turns find-style `*/name/*` into ugrep's `!name/`. Loading is forgiving by
   design (see below).
+- `sonarex/archive.py` — everything that knows what an archive member *is*.
+  `Hit(path, member)` is what the app carries instead of a path string, with
+  `member` empty for an ordinary file; `parse_result_line()` turns one line of
+  ugrep's `%f%s%z%~` output back into one; `member_glob()` builds the `-g` that
+  reaches a member; `extract()` runs ugrep over an empty pattern to get the
+  member's text back out. It imports nothing from the package — same rule as
+  `style.py`, and for the same reason: `search`, `viewer` and `window` all need
+  it and must not need each other. `ARCHIVE_EXTENSIONS` is *not* what turns the
+  feature on (the setting is); it only answers whether a result with no member
+  is still a compressed file, which is the plain `notes.txt.gz` case.
 - `sonarex/search.py` — `SearchRunner`, a `QProcess` wrapper that streams
   ugrep's hits back as `matchFound(path)` signals. `build_argv()` owns the
   command line. Beside it, `build_match_argv()`/`match_spans()` are the
   second, much smaller ugrep call: one named file, `-o -u`, and a `--format`
   that reports where the query matched inside it. That one is synchronous —
   ~16ms at the preview's size cap, so it does not need a `QProcess` — and it
-  answers `{}` rather than raising on any failure. `literal_query_term()`
+  answers `{}` rather than raising on any failure. Both grow an `archives`
+  flag: it puts `-z` on the argv and a `%z` on the format, and is the whole of
+  what archive searching costs the search side. `literal_query_term()`
   also lives here, because it is about the query language rather than about
   PDFs: it reduces a Boolean query to one plain string for Qt's PDF search,
   which knows no regexes, no AND/OR and no negation.
@@ -78,7 +92,15 @@ the query only ever comes from the window.
   the highlighter, scrolls, and refreshes the counter. The preview is a
   `QStackedWidget` of two panes — the text one and `PdfPane` — and
   `_pdf_showing` says which is up; `_match_total()` and the one branch in
-  `_go_to_match()` are all Prev/Next needs to work over either.
+  `_go_to_match()` are all Prev/Next needs to work over either. `HIT_ROLE`
+  carries a whole `Hit` rather than a path — one role, because the two halves
+  are never meaningful apart and `_sort_by_mtime()` rebuilds every row from it.
+  `_search_archives` is pinned in `start_search()` beside `_search_root` and
+  `_search_query`, so clearing the checkbox mid-session cannot turn rows
+  already on screen into files nothing can read. Open's tooltip is the one
+  control that changes with the selection (`OPEN_TIP`/`OPEN_TIP_ARCHIVED`):
+  a member opens a *copy*, which is worth saying before the click rather than
+  after someone has edited one and found the archive unchanged.
 - `sonarex/style.py` — the shared look: `action_button()` and the
   `action_button_style()` under it, `menu_style()`, the wider scroll bars,
   `tune_palette()`, `mono_font()`. It exists so a dialog can
@@ -95,11 +117,15 @@ the query only ever comes from the window.
   folder-row `…`), `NAV_BUTTON_BG` for Prev/Next, `selection_button_bg()` for
   Open — so a new button picks a role rather than a hex value.
 - `sonarex/settings.py` — the Options ▸ Settings dialog: one text area per pattern
-  list (one pattern per line) and a line edit for the Open command. A future
-  setting is one more `_add_patterns()`/`_add_line()` call plus a field on
+  list (one pattern per line), a checkbox for Search Archives, and a line edit
+  for the Open command. A future setting is one more
+  `_add_patterns()`/`_add_line()`/`_add_check()` call plus a field on
   `Settings`; the dialog sizes to its contents, so nothing else has to change.
 - `sonarex/viewer.py` — `read_for_preview()`: size cap, binary sniff, decode.
-  Always returns a string, never raises. Also `open_in_editor()`, which runs
+  Always returns a string, never raises. It takes a `Hit` and the setting the
+  *search* ran with; a member or a compressed file diverts to
+  `_read_compressed()`, which does the same three checks in the same order
+  against `archive.extract()`'s bytes instead of against a file on disk. Also `open_in_editor()`, which runs
   `open.command` from the config — `build_open_argv()` is the split-and-place
   rule, and every failure comes back as a message naming the command, since
   the command is now something the user typed. Extensions in
@@ -107,7 +133,10 @@ the query only ever comes from the window.
   `SYSTEM_OPEN_COMMAND` (`xdg-open`) instead, so they land in whatever the
   desktop has registered for them; only the command and the error hint differ,
   the spawn is the same. `is_pdf()` is the one answer to "is this a PDF",
-  shared by that and by the window's choice of preview pane.
+  shared by that and by the window's choice of preview pane. A member has no
+  path any editor can open, so `_temp_copy()` extracts it to a read-only file
+  under a per-session `tempfile.mkdtemp()` and Open runs against that;
+  `cleanup_temp_files()` is what `closeEvent` calls to remove them.
 
 ## Things that will bite you
 
@@ -171,6 +200,65 @@ the query only ever comes from the window.
   is ever added back, styling `::item` also takes the icon column out of Qt's
   hands and it will need a `QMenu::icon { left: … }` to sit clear of the
   label.
+
+- **With `-z`, an inclusion `-g` glob filters what is *inside* an archive, not
+  which archives are opened.** `-g '*.zip'` alone returns nothing; `-g '*.tex'`
+  alone finds the `.tex` inside a zip. So archive patterns must never go in
+  `included:` — that was the obvious design and it is exactly backwards, and it
+  is why Search Archives is a checkbox instead. The corollary is the one thing
+  the checkbox's tooltip has to say: an `included:` whitelist silently applies
+  to members too.
+
+- **An archive is only opened at all if ugrep knows its extension**, once any
+  inclusion glob is in play. `-g '*.MF'` finds nothing in `apport.jar`;
+  `-g '*.MF' -g '*.jar'` finds the manifest. `.jar`, `.docx` and `.epub` are all
+  zips ugrep does not recognise, so reaching into one means naming its
+  extension in `included:`. `ARCHIVE_EXTENSIONS` in `archive.py` is that list,
+  copied from `man ugrep`.
+
+- **A glob containing `/` never matches a path inside an archive.** Verified:
+  `-g 'doc-src/Makefile'` returns nothing for the member that `-g 'Makefile'`
+  finds. `member_glob()` therefore takes the basename only — which means it can
+  reach a second member of the same name, and why everything that uses it
+  filters the output by the exact `%z` afterwards rather than trusting the
+  glob. It also replaces glob metacharacters with `?` rather than escaping
+  them: `?` is one character wide, so the substitution can only widen, and a
+  member called `a[1].txt` is not read as a character class.
+
+- **`%f` already contains the braces; `%z` is the member alone.** A result line
+  is `archive.zip{member}` + separator + `member`, and the redundancy is the
+  point — both halves can legally contain a tab, so `parse_result_line()` tries
+  each separator position and takes the one where `%f` ends with `{%z}`. The
+  format only goes on the argv when archives are on, so an ordinary search
+  emits bare paths exactly as it always has.
+
+- **An unreadable archive does not fail the search.** ugrep writes
+  `cannot decompress …: zip data is encrypted` to stderr and leaves the exit
+  code at 0 (or 1 if nothing else matched) — measured on a `zip -P` file and on
+  a truncated one. Since `_on_search_finished` only shows stderr for an exit
+  above 1, password-protected and corrupt archives are already skipped in
+  silence, which is the wanted behavior and needed no code. Do not "fix" this
+  by treating stderr as an error.
+
+- **ugrep is the extractor, and it is line-based.** `--format='%O%~'` over an
+  empty pattern reproduces a member byte for byte — diffed against `unzip -p`
+  for a zip member, a `.tar.gz` member and a plain `.gz` — with one exception:
+  `%O` is the line without its terminator and `%~` puts one back, so a file
+  whose last line has no newline gains one. It cannot carry binary at all,
+  which is why a PDF or an image inside an archive gets a notice and why Open
+  refuses one rather than handing an editor a mangled copy.
+
+- **The extraction cap is applied to the stripped text, not to ugrep's
+  output.** Every line comes back with the member name and a separator in
+  front of it, so a file of short lines is several times its own size on the
+  wire; capping the raw read would cut a 2 MiB member at a few hundred KiB.
+
+- **`-z` changes what an ordinary search returns, it does not merely add to
+  it.** Every compressed file becomes searchable text: `copyright` over
+  `/usr/share/doc` goes from 2,285 hits to 3,548, nearly all gzipped docs. That
+  is the reason the setting defaults off. Note too that a zip whose entries are
+  *stored* rather than deflated already matches without `-z` — as one opaque
+  binary row, since ugrep is scanning its raw bytes.
 
 - **The Open command runs without a shell either**, for the same reason the
   ugrep filter does: `subprocess.Popen` gets an argv list, split by `shlex`.
@@ -327,6 +415,28 @@ message; switching PDF → text → PDF, where each pane must re-adopt its own
 matches and Word Wrap must follow; wrapping off both ends; and Open on a PDF,
 which still spawns `xdg-open`.
 
+For archives, build the tree rather than hunting for one: a `.zip` and a
+`.tar.gz` over the same staging directory, a plain `.gz`, a loose `.txt`, a
+`zip -P` encrypted one and a `head -c 120` truncation of the zip. The staged
+files are what the interesting cases are made of — two members sharing a
+basename in different directories, one called `a[1].txt`, a CRLF file, a file
+with no trailing newline, one with multi-byte characters ahead of the match,
+and one with blank lines in the middle. Then assert against the document the
+same way as for any other preview.
+
+Worth covering: that the argv with the setting off is byte-for-byte the old one
+(the regression guard for every existing user); the two same-basename members
+previewing differently; the metacharacter name; a plain `.gz` previewing as
+text rather than "Binary file"; that the encrypted and truncated zips produce
+no rows, no dialog, and do not stop the rest of the tree from landing; that
+`_sort_by_mtime` leaves an archive's members contiguous (they share the
+archive's mtime, and the sort is stable only because it keys on the time
+alone); a PDF inside a zip, which is a *real* hit — the `pdftotext` filter
+reaches into archives — and must show the notice, stay on the text pane, and
+be refused by Open; that Open on a text member leaves one read-only copy with
+the right basename which `closeEvent` then removes; and that Open's tooltip
+follows the selection between its two texts.
+
 The settings dialog is drivable the same way — `SettingsDialog()` constructs
 without the main window, and `_save()` can be called directly instead of
 clicking. Point `config.CONFIG_PATH` at a temp file first: it is read at call
@@ -335,6 +445,25 @@ touches the real `~/.config`.
 
 ## Not built yet
 
+- **A log for files that were skipped.** An encrypted or corrupt archive is
+  dropped in silence — deliberately, since a dialog per bad zip would be worse
+  — but that means there is no way to find out it happened. ugrep already says
+  why on stderr and `SearchRunner` already collects it; nothing writes it
+  anywhere. There is no logging in the app at all yet, which is the first half
+  of this job.
+- PDFs, images and other binaries inside archives. They are found and listed,
+  and the preview and Open both say why they cannot be shown. Doing better
+  means a real extractor — `unzip -p`, `tar -xOf`, `7z e -so` — instead of
+  ugrep, since ugrep's output is lines; a temp file would then also let
+  `PdfPane` render an archived PDF.
+- Nested archives. `--zmax` defaults to 1, so a `.zip` inside a `.tar.gz` shows
+  up as one binary row (`outer.tar.gz{docs.zip}`) rather than as its contents.
+  Raising it is one flag and the output shape survives it — the levels are
+  joined with ':' inside a single brace pair,
+  `outer.tar.gz{docs.zip:doc/one.txt}`, so `parse_result_line` needs no change
+  — but every level costs, `member_glob` would be globbing the wrong
+  half of that name, and extraction would need the same `--zmax` passed
+  through.
 - Further settings. The dialog is built to grow — another `_add_patterns()` or
   `_add_line()` call and it re-sizes itself — and `render_config()` carries
   unknown keys through, so an option can be added on either side first.

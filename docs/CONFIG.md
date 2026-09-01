@@ -36,6 +36,9 @@ search:
     - "*/.next/*"
     - "*/.nuxt/*"
 
+  # Look inside .zip, .tar.gz, .7z, .gz and the rest. Off by default.
+  archives: false
+
 open:
   # The command the Open button runs.
   command: "/usr/bin/code"
@@ -81,6 +84,35 @@ The common case is the first row: `*/NAME/*` excludes a directory called
 Exclusions are worth keeping generous. Skipping `node_modules`, `.git` and
 build output is usually the difference between a search that returns in a
 second and one that grinds through a hundred thousand irrelevant files.
+
+## `search.archives`
+
+`true` or `false`, default `false`. The **Search inside archives** checkbox in
+the settings dialog. With it on, a search also looks inside every format ugrep
+can decompress — `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.7z`, `.cpio`, `.gz`,
+`.bz2`, `.xz`, `.zst`, `.lz4`, `.br` and the rest — and a match inside one is
+listed as `archive.zip → path/inside.txt`.
+
+Two interactions are worth knowing, because both are ugrep's behavior rather
+than a choice Sonar made:
+
+- **`included` applies to the files inside an archive too.** A whitelist of
+  `["*.md"]` finds the `.md` files in a zip and nothing else in it. Do *not*
+  add `"*.zip"` to `included` to "enable" archives — it does the opposite, and
+  would restrict members to ones named `*.zip`.
+- **Only archives ugrep recognises by extension are opened**, once `included`
+  has anything in it at all. `.jar`, `.docx` and `.epub` are all really zips
+  that ugrep does not know, so reaching into one means adding that extension to
+  `included` yourself — alongside a pattern for the files you want out of it.
+
+It is off by default because it changes what an ordinary search returns rather
+than merely adding to it: every compressed file becomes searchable text, which
+on a system with gzipped documentation can be most of the results.
+
+Archives that are password-protected or corrupt are skipped without comment.
+Files inside an archive that are not text — a PDF, an image — are still found
+and listed, but the preview names them instead of showing them, and **Open**
+declines rather than handing an editor a mangled copy.
 
 ## `open.command`
 
@@ -132,6 +164,8 @@ Every failure degrades to "no patterns", never to an error:
   — that key is ignored; the others still apply.
 - **An empty or non-string `open.command`** — the default editor is used, so
   clearing the field in the dialog resets it rather than breaking Open.
+- **A non-boolean `search.archives`** (`"yes"`, `1`) — read as `false`, so a
+  typo means archives are not searched rather than a broken search.
 - **Non-string entries** in a list — dropped individually.
 
 A search never fails because of a typo in this file. If results look wrong,

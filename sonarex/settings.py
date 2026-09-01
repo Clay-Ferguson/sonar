@@ -6,8 +6,8 @@ no add/remove/reorder machinery because a text area already does all three,
 and it is the only editor for this that can be used without the mouse.
 
 The layout is a stack of labelled sections in a QVBoxLayout, sized to its
-contents: the next setting is one more `_add_patterns` or `_add_line` call
-and the dialog grows to fit it, with no geometry to revisit.
+contents: the next setting is one more `_add_patterns`, `_add_line` or
+`_add_check` call and the dialog grows to fit it, with no geometry to revisit.
 
 Saving writes the file and nothing else. Both readers go back to the config
 at the moment they need it — `build_argv` calls `search_globs` per search,
@@ -21,6 +21,7 @@ from html import escape
 
 from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -46,6 +47,7 @@ from .style import (
     action_button,
     action_button_size,
     apply_scrollbars,
+    enlarge_checkbox,
     mono_font,
 )
 
@@ -103,7 +105,7 @@ class PatternEdit(QPlainTextEdit):
 
 
 class SettingsDialog(QDialog):
-    """Edit `search.included` and `search.excluded`, then save or discard."""
+    """Edit the search patterns, archive searching and the Open command."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -142,6 +144,22 @@ class SettingsDialog(QDialog):
         self.excluded_edit = self._add_patterns(
             "Skip these files and folders:", settings.excluded
         )
+        self.archives_check = self._add_check(
+            "Search inside archives (.zip, .tar.gz, .7z, .gz \u2026)",
+            settings.archives,
+            # Both halves of this surprise people, and both are ugrep's doing
+            # rather than a choice made here: -g globs are matched against the
+            # names inside an archive, and an archive is only opened at all if
+            # its own extension is one ugrep knows.
+            tooltip=(
+                "A match inside an archive is listed as \"archive.zip \u2192 name\".\n"
+                "The include patterns above then apply to the files inside an"
+                " archive too.\n"
+                "Archives with an unusual extension (.jar, .docx, .epub are all"
+                " zips) are\nonly opened if you add that extension to the include"
+                " patterns."
+            ),
+        )
         self.open_edit = self._add_line(
             "Command the Open button runs (the file is added as the last argument):",
             settings.open_command,
@@ -156,9 +174,9 @@ class SettingsDialog(QDialog):
             ),
         )
 
-        # New settings go here — one more `_add_patterns` / `_add_line` (or
-        # any widget) added before the button row, which stays pinned to the
-        # bottom.
+        # New settings go here — one more `_add_patterns` / `_add_line` /
+        # `_add_check` (or any widget) added before the button row, which stays
+        # pinned to the bottom.
 
         # Every field above is a fixed height, so a dialog dragged taller has
         # surplus to put somewhere: it goes here, between the last setting and
@@ -208,6 +226,25 @@ class SettingsDialog(QDialog):
         self._layout.addWidget(edit)
         return edit
 
+    def _add_check(self, label: str, checked: bool, tooltip: str = "") -> QCheckBox:
+        """A checkbox, appended to the stack. Returns the field.
+
+        No caption above it: a checkbox carries its own label, and a second
+        line of text naming the same setting would read as two settings. It
+        gets the section gap all the same, so it sits apart from the field
+        above rather than looking like part of it.
+        """
+        if self._layout.count():
+            self._layout.addSpacing(SECTION_SPACING - LABEL_SPACING)
+        check = QCheckBox(label)
+        check.setChecked(checked)
+        check.setToolTip(tooltip)
+        # Matched to the main window's Word Wrap, which is the only other
+        # checkbox in the app.
+        enlarge_checkbox(check)
+        self._layout.addWidget(check)
+        return check
+
     def _button_row(self) -> QHBoxLayout:
         """Save and Cancel, right-aligned, sized like the Search button.
 
@@ -236,6 +273,7 @@ class SettingsDialog(QDialog):
             Settings(
                 included=parse_pattern_lines(self.included_edit.toPlainText()),
                 excluded=parse_pattern_lines(self.excluded_edit.toPlainText()),
+                archives=self.archives_check.isChecked(),
                 open_command=self.open_edit.text().strip(),
             )
         )
