@@ -6,12 +6,12 @@ Sonar reads one file:
 ~/.config/sonarex/sonarex-config.yaml
 ```
 
-It is created with defaults the first time Sonar runs, and it holds three
-settings — the two lists of glob patterns that scope every search, and the
+It is created with defaults the first time Sonar runs. It holds the two lists
+of glob patterns that scope every search, the two archive settings, and the
 command the Open button runs.
 
-Edit them from the **gear button** in the window's top row. The file can still
-be edited by hand; the dialog and the file are two views of the same settings.
+Edit them from **Options ▸ Settings** in the window's menu bar. The file can
+still be edited by hand; the dialog and the file are two views of the same settings.
 Saving from the dialog **rewrites the file**, so any comments or blank lines
 you added by hand are replaced by Sonar's own.
 
@@ -204,4 +204,4 @@ check the file for a mistake rather than assuming the search broke.
 
 Case-insensitivity, Boolean query mode, whole-file matching, and the PDF
 filter are fixed. They are the behavior described in the
-[README](../README.md#query-syntax) and are not read from this file.
+[User Guide](USER_GUIDE.md#query-syntax) and are not read from this file.
