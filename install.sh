@@ -1,10 +1,10 @@
 #!/bin/bash
-# Install the SonarEx desktop entry.
+# Install the Sonar desktop entry.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-read -rp "Path to the SonarEx program directory [$SCRIPT_DIR]: " PROGRAM_DIR
+read -rp "Path to the Sonar program directory [$SCRIPT_DIR]: " PROGRAM_DIR
 PROGRAM_DIR="${PROGRAM_DIR:-$SCRIPT_DIR}"
 PROGRAM_DIR="${PROGRAM_DIR/#\~/$HOME}"
 PROGRAM_DIR="$(cd "$PROGRAM_DIR" && pwd)"  # normalize; fails if it doesn't exist
@@ -26,7 +26,7 @@ done
 gtk-update-icon-cache -f -t "$ICON_ROOT" 2>/dev/null || true
 
 # No folder argument is baked into Exec=: launched from the application grid,
-# SonarEx opens on the current working directory and the folder row is editable
+# Sonar opens on the current working directory and the folder row is editable
 # anyway. A folder is only worth passing when something else (a file manager,
 # a script) already knows which one you mean.
 sed \
@@ -34,12 +34,12 @@ sed \
   "$SCRIPT_DIR/sonarex.desktop" > "$DESKTOP_TARGET"
 update-desktop-database ~/.local/share/applications/ 2>/dev/null
 
-echo "SonarEx desktop entry installed."
+echo "Sonar desktop entry installed."
 echo "  Program: $PROGRAM_DIR"
 echo "  Icon:    $ICON_ROOT/*/apps/sonarex.png"
 
 if ! command -v ugrep >/dev/null 2>&1; then
   echo
-  echo "Note: ugrep is not installed, and SonarEx cannot search without it."
+  echo "Note: ugrep is not installed, and Sonar cannot search without it."
   echo "  sudo apt install ugrep"
 fi

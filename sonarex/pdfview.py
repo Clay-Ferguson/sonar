@@ -1,6 +1,6 @@
 """The PDF half of the preview pane.
 
-A PDF is a binary file, so the text pane can only ever name it — but SonarEx
+A PDF is a binary file, so the text pane can only ever name it — but Sonar
 searches inside PDFs (ugrep extracts their text through `pdftotext`), so they
 turn up in the results like anything else, and being told "binary file" about
 a hit you just searched for is not an answer. Qt renders them instead:

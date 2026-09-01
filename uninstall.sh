@@ -1,5 +1,5 @@
 #!/bin/bash
-# Remove the SonarEx desktop entry.
+# Remove the Sonar desktop entry.
 set -euo pipefail
 
 DESKTOP_TARGET="$HOME/.local/share/applications/sonarex.desktop"
@@ -8,9 +8,9 @@ ICON_ROOT="$HOME/.local/share/icons/hicolor"
 if [ -f "$DESKTOP_TARGET" ]; then
   rm -f "$DESKTOP_TARGET"
   update-desktop-database ~/.local/share/applications/ 2>/dev/null
-  echo "SonarEx desktop entry removed."
+  echo "Sonar desktop entry removed."
 else
-  echo "No SonarEx desktop entry found at $DESKTOP_TARGET"
+  echo "No Sonar desktop entry found at $DESKTOP_TARGET"
 fi
 
 # Only our own file is removed from each size directory; the directories are

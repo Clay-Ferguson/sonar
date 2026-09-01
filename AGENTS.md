@@ -2,7 +2,7 @@
 
 ## What this is
 
-SonarEx is a PyQt6 desktop app: a two-pane content-search window over
+Sonar is a PyQt6 desktop app: a two-pane content-search window over
 [ugrep](https://github.com/Genivia/ugrep). A query field and a folder row sit
 across the top; below them a splitter holds the matching file paths on the
 left and a read-only view of the selected file on the right.

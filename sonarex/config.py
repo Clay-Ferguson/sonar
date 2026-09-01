@@ -81,9 +81,9 @@ DEFAULTS = Settings([], DEFAULT_EXCLUDED, DEFAULT_OPEN_COMMAND)
 # a template would mean the explanations survived exactly until the first
 # save and then vanished.
 FILE_COMMENT = """\
-# SonarEx configuration.
+# Sonar configuration.
 #
-# SonarEx rewrites this file when you press Save in the settings dialog, which
+# Sonar rewrites this file when you press Save in the settings dialog, which
 # reformats it: your own comments and blank lines here will not survive that.
 """
 
@@ -105,7 +105,7 @@ INCLUDED_COMMENT = """\
 """
 
 EXCLUDED_COMMENT = """\
-  # Directories and files to skip. Written in find's -path style; SonarEx
+  # Directories and files to skip. Written in find's -path style; Sonar
   # translates them into ugrep's glob syntax.
 """
 
@@ -203,7 +203,7 @@ def ensure_config() -> None:
         with open(CONFIG_PATH, "w", encoding="utf-8") as handle:
             handle.write(DEFAULT_CONFIG)
     except OSError as exc:
-        print(f"SonarEx: could not create {CONFIG_PATH}: {exc}")
+        print(f"Sonar: could not create {CONFIG_PATH}: {exc}")
 
 
 def read_config() -> tuple[dict, str | None]:
@@ -226,7 +226,7 @@ def read_config() -> tuple[dict, str | None]:
     except FileNotFoundError:
         return {}, None
     except (OSError, yaml.YAMLError) as exc:
-        print(f"SonarEx: error loading {CONFIG_PATH}: {exc}")
+        print(f"Sonar: error loading {CONFIG_PATH}: {exc}")
         return {}, str(exc)
     # safe_load returns None for an empty file, and could return a scalar or a
     # list for a file that parses but isn't a mapping.
@@ -299,7 +299,7 @@ def build_glob_args(excluded: list[str], included: list[str]) -> list[str]:
     """Config patterns as a flat argv list of repeated ugrep `-g` arguments.
 
     e.g. `['-g', '!node_modules/', '-g', '*.md']`. Returned as argv rather
-    than a shell string because nothing in SonarEx builds a shell command line
+    than a shell string because nothing in Sonar builds a shell command line
     any more — ugrep is spawned directly.
     """
     args: list[str] = []

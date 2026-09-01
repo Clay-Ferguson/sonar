@@ -1,19 +1,19 @@
-# SonarEx configuration
+# Sonar configuration
 
-SonarEx reads one file:
+Sonar reads one file:
 
 ```
 ~/.config/sonarex/sonarex-config.yaml
 ```
 
-It is created with defaults the first time SonarEx runs, and it holds three
+It is created with defaults the first time Sonar runs, and it holds three
 settings — the two lists of glob patterns that scope every search, and the
 command the Open button runs.
 
 Edit them from the **gear button** in the window's top row. The file can still
 be edited by hand; the dialog and the file are two views of the same settings.
 Saving from the dialog **rewrites the file**, so any comments or blank lines
-you added by hand are replaced by SonarEx's own.
+you added by hand are replaced by Sonar's own.
 
 ## The file
 
@@ -42,7 +42,7 @@ open:
 ```
 
 Changes take effect the next time the setting is used — the next search, or
-the next press of Open. There is no need to restart SonarEx.
+the next press of Open. There is no need to restart Sonar.
 
 ## `search.included`
 
@@ -66,10 +66,10 @@ at any depth".
 
 ## `search.excluded`
 
-Directories and files to skip. Written in `find -path` style; SonarEx
+Directories and files to skip. Written in `find -path` style; Sonar
 translates them into ugrep's glob syntax:
 
-| You write | SonarEx passes to ugrep | Meaning |
+| You write | Sonar passes to ugrep | Meaning |
 |---|---|---|
 | `*/node_modules/*` | `!node_modules/` | skip any directory named `node_modules`, at any depth |
 | `*/src/generated/*` | `!**/src/generated/**` | skip that nested path |
@@ -85,7 +85,7 @@ second and one that grinds through a hundred thousand irrelevant files.
 ## `open.command`
 
 The command the **Open** button runs on the selected file. It defaults to
-`/usr/bin/code` (VS Code), which is what SonarEx used before this was
+`/usr/bin/code` (VS Code), which is what Sonar used before this was
 configurable.
 
 The command is split the way a shell would split it — so quotes work, and an
@@ -95,7 +95,7 @@ useful; if you need them, point this at a script.
 
 The selected file is added as the **last argument**:
 
-| `open.command` | SonarEx runs |
+| `open.command` | Sonar runs |
 |---|---|
 | `/usr/bin/code` | `/usr/bin/code /path/to/hit.txt` |
 | `gedit` | `/usr/bin/gedit /path/to/hit.txt` |
@@ -115,9 +115,9 @@ Either way, a command that cannot be found is reported in a dialog naming the
 program, rather than failing silently.
 
 The editor is started in its own session with its streams discarded, so it
-outlives SonarEx and cannot block the window. SonarEx's own virtualenv is
+outlives Sonar and cannot block the window. Sonar's own virtualenv is
 stripped from the environment it inherits — otherwise VS Code would offer
-SonarEx's Python interpreter to whatever project it opens.
+Sonar's Python interpreter to whatever project it opens.
 
 ## When the config is missing or broken
 

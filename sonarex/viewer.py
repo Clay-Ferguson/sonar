@@ -1,4 +1,4 @@
-"""What SonarEx does with the file the user picked: show it, or open it.
+"""What Sonar does with the file the user picked: show it, or open it.
 
 `read_for_preview` answers what the read-only pane should display. Every
 answer is a string — a file that can't be read produces a notice describing
@@ -123,11 +123,11 @@ def read_for_preview(path: str) -> tuple[str, bool]:
 
 
 def _child_env() -> dict[str, str]:
-    """Our environment, minus SonarEx's own virtualenv.
+    """Our environment, minus Sonar's own virtualenv.
 
     start.sh runs the app through `uv run`, which puts .venv/bin on PATH and
     sets VIRTUAL_ENV. Left in place those are inherited by the editor, so
-    VS Code would offer SonarEx's interpreter as the Python environment for
+    VS Code would offer Sonar's interpreter as the Python environment for
     whatever project it opens. The editor should see the environment a
     terminal would give it, not ours.
     """
@@ -192,7 +192,7 @@ def open_in_editor(path: str) -> str | None:
     missing program it is instead of a bare OSError from the spawn.
 
     Spawned with `start_new_session=True` and its streams discarded, so the
-    editor is not a child that dies with SonarEx and cannot stall the GUI by
+    editor is not a child that dies with Sonar and cannot stall the GUI by
     filling a pipe nobody reads.
     """
     if not os.path.exists(path):

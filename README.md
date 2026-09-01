@@ -1,4 +1,4 @@
-# SonarEx
+# Sonar
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-linux-lightgrey.svg)
@@ -9,7 +9,7 @@ A desktop search utility: type a query, get every file under a folder whose
 
 [ugrep](https://github.com/Genivia/ugrep) does the searching, so queries are
 Google-style Boolean expressions and a whole source tree is scanned in
-seconds. SonarEx is the window around it — results stream in as they are
+seconds. Sonar is the window around it — results stream in as they are
 found, and clicking one shows the file.
 
 ## Running
@@ -21,14 +21,14 @@ found, and clicking one shows the file.
 
 The folder is the only argument, and it just prefills the **Folder** row —
 nothing is searched until you type a query and press Enter. Without an
-argument, SonarEx starts on the current working directory. Either way the
+argument, Sonar starts on the current working directory. Either way the
 folder row stays editable, with a **…** button for picking one.
 
 `start.sh` runs the app through [uv](https://docs.astral.sh/uv/), which creates
 and refreshes the virtualenv from `pyproject.toml` on every run — there is no
 install step and nothing to activate.
 
-`./install.sh` adds a desktop entry and its icon so SonarEx shows up in your
+`./install.sh` adds a desktop entry and its icon so Sonar shows up in your
 application launcher; `./uninstall.sh` removes both.
 
 ## The window
@@ -77,7 +77,7 @@ Searches are case-insensitive.
 ## Configuration
 
 `~/.config/sonarex/sonarex-config.yaml`, created with sensible defaults the
-first time SonarEx runs:
+first time Sonar runs:
 
 ```yaml
 search:
@@ -106,7 +106,7 @@ full reference.
 sudo apt install ugrep
 ```
 
-`ugrep` is required — SonarEx says so and exits if it is missing. `uv` is
+`ugrep` is required — Sonar says so and exits if it is missing. `uv` is
 required to launch (see [uv's install page](https://docs.astral.sh/uv/)); it
 pulls in PyQt6 and PyYAML on first run.
 
@@ -116,7 +116,7 @@ still reports them as binary rather than displaying them.
 
 ## History
 
-SonarEx began as a Nautilus context-menu extension that drove `zenity` and
+Sonar began as a Nautilus context-menu extension that drove `zenity` and
 `gnome-terminal`. It is now a standalone application: a Nautilus extension
 runs inside the Nautilus process, which is GTK, and PyQt6 cannot live there.
 Going PyQt6 meant dropping the file-manager integration and, with it, several

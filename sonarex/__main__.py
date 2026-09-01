@@ -24,7 +24,7 @@ def resolve_folder(argument: str | None) -> tuple[str, str | None]:
     A path that turns out to be a *file* resolves to its parent directory.
     That is carried over from the Nautilus version, where the search could be
     invoked on a selected file, and it stays useful for anything scripting
-    SonarEx.
+    Sonar.
     """
     if argument is None:
         return os.getcwd(), None
@@ -43,7 +43,7 @@ def resolve_folder(argument: str | None) -> tuple[str, str | None]:
 def main() -> int:
     # nargs="?" rather than a required argument: argparse reports a missing
     # one on stderr and exits before a QApplication exists, which is invisible
-    # when SonarEx is started from a desktop icon rather than a terminal.
+    # when Sonar is started from a desktop icon rather than a terminal.
     # Everything that can go wrong is reported in a dialog below instead.
     parser = argparse.ArgumentParser(prog="sonarex", description=__doc__)
     parser.add_argument(
@@ -60,8 +60,8 @@ def main() -> int:
     # applicationDisplayName is deliberately NOT set. Every platform backend
     # runs its window titles through QPlatformWindow::formatWindowTitle(),
     # which appends the display name to whatever setWindowTitle() was given —
-    # so with it set, the help dialog's "SonarEx — Query Syntax" reached the
-    # title bar as "SonarEx — Query Syntax — SonarEx". Each window spells out
+    # so with it set, the help dialog's "Sonar — Query Syntax" reached the
+    # title bar as "Sonar — Query Syntax — Sonar". Each window spells out
     # its own full title instead.
     # Ties the window to sonarex.desktop, so the desktop shows our icon and
     # name in the dock and alt-tab. Without it the Wayland app_id is derived
@@ -81,7 +81,7 @@ def main() -> int:
         QMessageBox.critical(
             None,
             f"{APP_NAME} — cannot start",
-            "SonarEx searches with ugrep, which is not installed.\n\n"
+            "Sonar searches with ugrep, which is not installed.\n\n"
             "Install it with:\n\n    sudo apt install ugrep",
         )
         return 1

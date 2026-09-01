@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SonarEx launcher.
+# Sonar launcher.
 #
 # uv builds/refreshes the virtualenv from pyproject.toml on every run, so there
 # is no install step. Usage: ./start.sh [/folder/to/search]

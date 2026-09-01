@@ -96,7 +96,7 @@ class HelpDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("SonarEx — Query Syntax")
+        self.setWindowTitle("Sonar — Query Syntax")
         self.setMinimumWidth(MIN_WIDTH)
 
         body = QLabel(HELP_HTML)

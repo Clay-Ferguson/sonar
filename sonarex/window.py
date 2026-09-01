@@ -308,7 +308,7 @@ class MainWindow(QWidget):
 
         With no status bar, the title is where a search says how it is going.
         It costs no layout space, and it is the one piece of window furniture
-        that is always visible — including when SonarEx is a background window
+        that is always visible — including when Sonar is a background window
         someone is glancing at from another app.
         """
         self.setWindowTitle(f"{APP_NAME} — {note}" if note else APP_NAME)
@@ -459,7 +459,7 @@ class MainWindow(QWidget):
                 except OSError:
                     continue  # vanished since the search; drop the row
         except Exception as exc:  # pragma: no cover - defensive
-            print(f"SonarEx: could not sort results: {exc}")
+            print(f"Sonar: could not sort results: {exc}")
             return
 
         dated.sort(key=lambda pair: pair[0], reverse=True)

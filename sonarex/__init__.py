@@ -1,6 +1,6 @@
-"""SonarEx: recursive file-content search over ugrep, in a two-pane window."""
+"""Sonar: recursive file-content search over ugrep, in a two-pane window."""
 
-APP_NAME = "SonarEx"
+APP_NAME = "Sonar"
 
 # Applied to the whole application in __main__, so the controls and the two
 # panes stay in proportion. A couple of points above the desktop default:

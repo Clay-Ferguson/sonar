@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=SonarEx
+Name=Sonar
 Comment=Search file contents recursively under a folder
 Exec=/mnt/projects/sonarex/start.sh
 Icon=sonarex
