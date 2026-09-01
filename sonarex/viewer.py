@@ -206,7 +206,7 @@ def open_in_editor(path: str) -> str | None:
         )
     else:
         command = open_command()
-        hint = "\n\nChange the Open command with the gear button."
+        hint = "\n\nChange the Open command under Options ▸ Settings."
 
     try:
         argv = build_open_argv(command, path)

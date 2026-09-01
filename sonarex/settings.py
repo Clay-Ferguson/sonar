@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from html import escape
 
-from PyQt6.QtGui import QFontMetrics, QIcon
+from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -42,26 +41,12 @@ from .config import (
     save_settings,
 )
 from .style import (
-    HELP_BUTTON_BG,
-    SEARCH_BUTTON_BG,
-    SEARCH_BUTTON_PADDING,
+    PRIMARY_BUTTON_BG,
+    SECONDARY_BUTTON_BG,
+    action_button,
     action_button_size,
-    action_button_style,
     apply_scrollbars,
-    match_action_button,
     mono_font,
-)
-
-# Icon-theme names to try for the button, best first. Yaru supplies the first
-# few; a bare desktop install may supply none, which is what the drawn gear
-# fallback in `settings_icon` is for.
-ICON_NAMES = (
-    "preferences-system",
-    "applications-system",
-    "preferences-desktop",
-    "emblem-system",
-    "settings-configure",
-    "gtk-preferences",
 )
 
 # How many lines of patterns each text area shows before it has to scroll.
@@ -76,19 +61,6 @@ LABEL_SPACING = 4
 # Wide enough for a long exclusion path without wrapping it — these are read
 # as whole patterns, and a pattern broken across two lines is hard to check.
 MIN_WIDTH = 600
-
-
-def settings_icon() -> QIcon:
-    """A gear icon from the desktop theme, or a null QIcon if it has none.
-
-    Same contract as `help.help_icon`: the caller checks for null and draws a
-    character instead, since a button showing a null icon is a blank button.
-    """
-    for name in ICON_NAMES:
-        icon = QIcon.fromTheme(name)
-        if not icon.isNull():
-            return icon
-    return QIcon()
 
 
 class PatternEdit(QPlainTextEdit):
@@ -243,11 +215,11 @@ class SettingsDialog(QDialog):
         size themselves: three buttons of three different widths in one app is
         what makes a dialog look assembled rather than designed.
         """
-        save = self._action_button("Save", SEARCH_BUTTON_BG)
+        save = action_button("Save", PRIMARY_BUTTON_BG, uniform=True)
         save.setDefault(True)  # Enter in the dialog saves
         save.clicked.connect(self._save)
 
-        cancel = self._action_button("Cancel", HELP_BUTTON_BG)
+        cancel = action_button("Cancel", SECONDARY_BUTTON_BG, uniform=True)
         cancel.clicked.connect(self.reject)
 
         row = QHBoxLayout()
@@ -255,13 +227,6 @@ class SettingsDialog(QDialog):
         row.addWidget(cancel)
         row.addWidget(save)
         return row
-
-    @staticmethod
-    def _action_button(text: str, background: str) -> QPushButton:
-        button = QPushButton(text)
-        button.setStyleSheet(action_button_style(background, SEARCH_BUTTON_PADDING))
-        match_action_button(button)
-        return button
 
     # -- actions -----------------------------------------------------------
 

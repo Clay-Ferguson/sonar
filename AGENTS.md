@@ -67,20 +67,34 @@ the query only ever comes from the window.
   paints those spans onto the preview, one of them in a hotter color as the
   current match. It knows nothing about the query; it only colors the ranges
   `match_spans()` hands it, and `set_current()` says which one is parked on.
-- `sonarex/window.py` — `MainWindow`: the two rows, the splitter, the status
-  label, and the end-of-search sort. Also the Prev/Next walk: `_adopt_matches()`
+- `sonarex/window.py` — `MainWindow`: a `QMainWindow` holding the menu bar,
+  the two rows, the splitter, the status label, and the end-of-search sort. It
+  is a `QMainWindow` rather than a plain `QWidget` only so `menuBar()` exists —
+  everything else lives on a central widget; `_build_menus()` is the whole menu
+  bar, one Options menu with Settings and Help on it, labels only (these
+  were square icon buttons in the query row until they became menu items). Also the Prev/Next walk: `_adopt_matches()`
   flattens the spans into reading order on `self._matches`, and
   `_go_to_match()` is the single place that moves `self._match_index`, marks
   the highlighter, scrolls, and refreshes the counter. The preview is a
   `QStackedWidget` of two panes — the text one and `PdfPane` — and
   `_pdf_showing` says which is up; `_match_total()` and the one branch in
   `_go_to_match()` are all Prev/Next needs to work over either.
-- `sonarex/style.py` — the shared look: `action_button_style()`, the wider
-  scroll bars, `tune_palette()`, `mono_font()`. It exists so a dialog can
+- `sonarex/style.py` — the shared look: `action_button()` and the
+  `action_button_style()` under it, `menu_style()`, the wider scroll bars,
+  `tune_palette()`, `mono_font()`. It exists so a dialog can
   match the window's controls without importing `window`, which opens the
   dialogs and would make that a cycle. It imports nothing from the package
-  except `UI_POINT_SIZE`; keep it that way.
-- `sonarex/settings.py` — the gear button's dialog: one text area per pattern
+  except `UI_POINT_SIZE`; keep it that way. **Every button in the app is made
+  by `action_button()`** — never `QPushButton(...)` at a call site: the
+  factory is what carries the color, the padding and `setAutoDefault(False)`,
+  and a button built by hand comes out wearing the desktop theme instead
+  (which is exactly what the help dialog's `QDialogButtonBox` Close did until
+  it was replaced by a plain button). The colors are named for the *role* —
+  `PRIMARY_BUTTON_BG` for the main action of a window or dialog (Search,
+  Save), `SECONDARY_BUTTON_BG` for anything beside it (Cancel, Close, the
+  folder-row `…`), `NAV_BUTTON_BG` for Prev/Next, `selection_button_bg()` for
+  Open — so a new button picks a role rather than a hex value.
+- `sonarex/settings.py` — the Options ▸ Settings dialog: one text area per pattern
   list (one pattern per line) and a line edit for the Open command. A future
   setting is one more `_add_patterns()`/`_add_line()` call plus a field on
   `Settings`; the dialog sizes to its contents, so nothing else has to change.
@@ -148,6 +162,16 @@ the query only ever comes from the window.
   two such places — a selection going to None, and `start_search` — and both
   route through `_adopt_matches({})`. Leaving them out leaves Prev and Next
   live over a document whose matches are gone.
+- **Styling `QMenuBar::item` / `QMenu::item` costs you the hover.** As with
+  the buttons, a stylesheet on a sub-control opts it out of the native style's
+  rendering, so `menu_style()` restates `:selected` — in `palette()` terms, so
+  the menus still follow the theme — or a menu highlights nothing under the
+  pointer. Padding only, no font size: the menus grow as targets without
+  the rest of the header moving. Note that the items carry no icons — if one
+  is ever added back, styling `::item` also takes the icon column out of Qt's
+  hands and it will need a `QMenu::icon { left: … }` to sit clear of the
+  label.
+
 - **The Open command runs without a shell either**, for the same reason the
   ugrep filter does: `subprocess.Popen` gets an argv list, split by `shlex`.
   Quotes and spaces in a program path work; pipes, redirection and `&&` do

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QTextCursor
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMainWindow,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -29,7 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import APP_NAME
-from .help import help_icon, show_help
+from .help import show_help
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
 from .search import (
@@ -39,19 +40,18 @@ from .search import (
     literal_query_term,
     match_spans,
 )
-from .settings import settings_icon, show_settings
+from .settings import show_settings
 from .style import (
     CONTROL_BAR_PADDING,
-    PANE_GAP,
-    SPLITTER_HANDLE_WIDTH,
-    HELP_BUTTON_BG,
-    ICON_BUTTON_RATIO,
     NAV_BUTTON_BG,
-    SEARCH_BUTTON_BG,
-    SEARCH_BUTTON_PADDING,
-    action_button_style,
+    PANE_GAP,
+    PRIMARY_BUTTON_BG,
+    SECONDARY_BUTTON_BG,
+    SPLITTER_HANDLE_WIDTH,
+    action_button,
     apply_scrollbars,
     enlarge_checkbox,
+    menu_style,
     mono_font,
     selection_button_bg,
     splitter_style,
@@ -69,7 +69,7 @@ SPLIT_LIST = 2
 SPLIT_PREVIEW = 3
 
 
-class MainWindow(QWidget):
+class MainWindow(QMainWindow):
     def __init__(self, folder: str) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -100,7 +100,15 @@ class MainWindow(QWidget):
         # Prev/Next should be reading its count from.
         self._pdf_showing = False
 
-        layout = QVBoxLayout(self)
+        self._build_menus()
+
+        # A QMainWindow so the menu bar is the window's own — Qt places it
+        # under the title bar, or hands it to the desktop's global menu where
+        # there is one. Everything else lives on a plain central widget, which
+        # is what the layout below fills.
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
 
         # The two rows are separate layouts, so their labels are pinned to a
         # common width here rather than left to size themselves — otherwise
@@ -117,61 +125,23 @@ class MainWindow(QWidget):
         # --- query row ---------------------------------------------------
         self.query_edit = QLineEdit()
         self.query_edit.returnPressed.connect(self.start_search)
-        self.search_button = QPushButton("Search")
-        self.search_button.setStyleSheet(
-            action_button_style(SEARCH_BUTTON_BG, SEARCH_BUTTON_PADDING)
-        )
+        # Enter anywhere in the window runs the search rather than activating
+        # whichever button holds focus — `action_button()` clears autoDefault
+        # on every button it makes, which is what leaves that path clear.
+        self.search_button = action_button("Search", PRIMARY_BUTTON_BG)
         self.search_button.clicked.connect(self.start_search)
-        # So Enter anywhere in the window runs the search rather than
-        # activating whichever button happens to have focus.
-        self.search_button.setAutoDefault(False)
-
-        self.settings_button = QPushButton()
-        self.settings_button.setStyleSheet(action_button_style(HELP_BUTTON_BG))
-        gear = settings_icon()
-        if gear.isNull():
-            # No icon theme has a gear glyph: draw the character instead,
-            # rather than an empty square.
-            self.settings_button.setText("⚙")
-        else:
-            self.settings_button.setIcon(gear)
-        self.settings_button.setToolTip("Search settings (include / exclude patterns)")
-        self.settings_button.setAutoDefault(False)
-        # Nothing to refresh afterwards: the config is re-read at the start of
-        # every search, so a saved change applies from the next Search press.
-        self.settings_button.clicked.connect(lambda: show_settings(self))
-
-        self.help_button = QPushButton()
-        self.help_button.setStyleSheet(action_button_style(HELP_BUTTON_BG))
-        icon = help_icon()
-        if icon.isNull():
-            # No icon theme has a help glyph (a bare desktop install): show the
-            # character instead, rather than an empty square.
-            self.help_button.setText("?")
-        else:
-            self.help_button.setIcon(icon)
-        self.help_button.setToolTip("Query syntax help")
-        self.help_button.setAutoDefault(False)
-        self.help_button.clicked.connect(lambda: show_help(self))
 
         # The padded Search button sets the height for every control in both
         # rows: a stock QLineEdit is shorter, and mixing the two leaves the
         # fields floating with a gap above and below them. Taken from the
         # button's own size hint rather than hardcoded, so adjusting
-        # SEARCH_BUTTON_PADDING resizes the whole header together.
+        # ACTION_BUTTON_PADDING resizes the whole header together.
         row_height = self.search_button.sizeHint().height()
         self.query_edit.setFixedHeight(row_height)
-        # Scaled to the button rather than left at QPushButton's 16px default.
-        glyph = int(row_height * ICON_BUTTON_RATIO)
-        for button in (self.settings_button, self.help_button):
-            button.setFixedSize(row_height, row_height)
-            button.setIconSize(QSize(glyph, glyph))
 
         query_row = QHBoxLayout()
         query_row.addWidget(search_label)
         query_row.addWidget(self.query_edit, 1)
-        query_row.addWidget(self.settings_button)
-        query_row.addWidget(self.help_button)
         query_row.addWidget(self.search_button)
         layout.addLayout(query_row)
 
@@ -179,13 +149,14 @@ class MainWindow(QWidget):
         self.folder_edit = QLineEdit(folder)
         self.folder_edit.setFixedHeight(row_height)
         self.folder_edit.returnPressed.connect(self.start_search)
-        browse_button = QPushButton("…")
         # Square, at the shared row height: with only an ellipsis on it there
         # is no text width to size to, so it would otherwise be a lone stubby
-        # control at the end of an otherwise uniform header.
+        # control at the end of an otherwise uniform header. The size is fixed,
+        # so it takes no padding — padding inside a fixed size only squeezes
+        # the label.
+        browse_button = action_button("…", SECONDARY_BUTTON_BG, "0px")
         browse_button.setFixedSize(row_height, row_height)
         browse_button.setToolTip("Choose the folder to search")
-        browse_button.setAutoDefault(False)
         browse_button.clicked.connect(self._browse)
 
         folder_row = QHBoxLayout()
@@ -233,12 +204,10 @@ class MainWindow(QWidget):
         # Sits inside the right-hand pane rather than under the whole window,
         # so it reads as belonging to the file being shown above it — and so
         # dragging the splitter moves it with the pane it controls.
-        self.open_button = QPushButton("Open")
-        self.open_button.setStyleSheet(
-            action_button_style(selection_button_bg(), CONTROL_BAR_PADDING)
+        self.open_button = action_button(
+            "Open", selection_button_bg(), CONTROL_BAR_PADDING
         )
         self.open_button.setToolTip("Open this file in the editor")
-        self.open_button.setAutoDefault(False)
         # Nothing is selected at startup, and "Open" with no file would be a
         # button that silently does nothing.
         self.open_button.setEnabled(False)
@@ -300,6 +269,34 @@ class MainWindow(QWidget):
         layout.addWidget(splitter, 1)
 
         self.query_edit.setFocus()
+
+    # -- menus --------------------------------------------------------------
+
+    def _build_menus(self) -> None:
+        """The one menu: Options, with the two dialogs on it.
+
+        These were icon buttons in the query row; a menu is where a desktop
+        app puts things that open a dialog and are not part of the search
+        itself. Labels only — the theme's gear and question mark said nothing
+        the words do not, and two items of plain text read as one list.
+        """
+        bar = self.menuBar()
+        # Padding only, so the titles and items are comfortable targets
+        # without the menu font growing away from the rest of the window.
+        bar.setStyleSheet(menu_style())
+        options = bar.addMenu("&Options")
+
+        settings_action = QAction("&Settings", self)
+        settings_action.setStatusTip("Search settings (include / exclude patterns)")
+        # Nothing to refresh afterwards: the config is re-read at the start of
+        # every search, so a saved change applies from the next Search press.
+        settings_action.triggered.connect(lambda: show_settings(self))
+        options.addAction(settings_action)
+
+        help_action = QAction("&Help", self)
+        help_action.setStatusTip("Query syntax help")
+        help_action.triggered.connect(lambda: show_help(self))
+        options.addAction(help_action)
 
     # -- reporting ----------------------------------------------------------
 
@@ -532,10 +529,8 @@ class MainWindow(QWidget):
 
     def _nav_button(self, text: str, tip: str) -> QPushButton:
         """One of the two match-stepping buttons, styled alike."""
-        button = QPushButton(text)
-        button.setStyleSheet(action_button_style(NAV_BUTTON_BG, CONTROL_BAR_PADDING))
+        button = action_button(text, NAV_BUTTON_BG, CONTROL_BAR_PADDING)
         button.setToolTip(tip)
-        button.setAutoDefault(False)
         # Disabled until a file with matches is on screen, for the same reason
         # Open is: a button that silently does nothing is worse than a dim one.
         button.setEnabled(False)

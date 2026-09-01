@@ -22,15 +22,20 @@ WINDOW_LIGHTEN = 140
 # Below this much separation in lightness, two surfaces read as one.
 MIN_SEPARATION = 6
 
-# Header button colors. Search is a muted, desaturated green that reads as the
-# primary action without turning into a traffic light; Help is a neutral gray
-# so it sits beside it as secondary. Light text works on both, so these are
-# defined outright rather than derived from the palette the way the window
-# surface is.
-SEARCH_BUTTON_BG = "#4a6f45"
-HELP_BUTTON_BG = "#5a5a5a"
+# The two general-purpose button colors, named for the *role* rather than for
+# any one button: PRIMARY is a muted, desaturated green that reads as the main
+# action without turning into a traffic light (Search, Save), SECONDARY the
+# neutral gray of anything sitting beside one (Cancel, Close). Light text works
+# on both, so these are defined outright rather than derived from the palette
+# the way the window surface is.
+PRIMARY_BUTTON_BG = "#4a6f45"
+SECONDARY_BUTTON_BG = "#5a5a5a"
 BUTTON_FG = "#f0f2ef"
-SEARCH_BUTTON_PADDING = "8px 24px"
+
+# The default padding of a button made by `action_button()`, and so the shape
+# every full-size button in the app takes unless it asks for another. Wider
+# than a stock QPushButton's on purpose — the labels want room around them.
+ACTION_BUTTON_PADDING = "8px 24px"
 
 # Match highlighting in the preview. Both halves are pinned rather than derived
 # from the palette, and they have to be set together: the background has to stay
@@ -67,11 +72,6 @@ MAX_SELECTION_LIGHTNESS = 150
 # dialogs need the measurement before (and without) the main window.
 ACTION_BUTTON_TEXT = "Search"
 
-# The icon inside a square header button, as a fraction of the button. A
-# QPushButton draws icons at 16px by default whatever its own size, which in a
-# button this tall leaves the glyph marooned in the middle and unreadable.
-ICON_BUTTON_RATIO = 0.68
-
 # The control bar under the preview is secondary to the header, so its
 # button is padded more modestly than the Search button.
 CONTROL_BAR_PADDING = "5px 16px"
@@ -100,6 +100,13 @@ SCROLLBAR_SCALE = 2
 # extent (or none at all) and the result would be a bar too thin to hit.
 MIN_SCROLLBAR_EXTENT = 12
 
+# Menu padding, in pixels: the space around the label of a menu-bar title and
+# of an item inside a menu. Both are bigger targets than the desktop's default,
+# which is sized for a mouse that never misses. The menus carry so few items
+# that the extra height costs nothing.
+MENU_BAR_ITEM_PADDING = "8px 16px"
+MENU_ITEM_PADDING = "10px 32px"
+
 # How much bigger than the desktop's own a check box's indicator is drawn.
 # Same reasoning as the scroll bars: a bigger target is an easier one to hit.
 CHECKBOX_SCALE = 2
@@ -117,9 +124,8 @@ def action_button_style(background: str, padding: str = "0px") -> str:
     Fusion no longer draws its own frame, and without one the button reads as
     a flat colored rectangle rather than a control.
 
-    `padding` defaults to none, for a button whose size is set explicitly (the
-    square icon buttons); padding on top of a fixed size would only squeeze
-    the content.
+    `padding` defaults to none, for a button whose size is set explicitly;
+    padding on top of a fixed size would only squeeze the content.
     """
     base = QColor(background)
     return f"""
@@ -161,12 +167,12 @@ def action_button_size() -> QSize:
 
     Measured off a throwaway button carrying the same text, style and padding,
     rather than hardcoded: the result then follows the point size, the
-    desktop font and `SEARCH_BUTTON_PADDING` instead of drifting out of step
+    desktop font and `ACTION_BUTTON_PADDING` instead of drifting out of step
     with them. The probe is never shown and never parented, so it is destroyed
     with the last reference to it here.
     """
     probe = QPushButton(ACTION_BUTTON_TEXT)
-    probe.setStyleSheet(action_button_style(SEARCH_BUTTON_BG, SEARCH_BUTTON_PADDING))
+    probe.setStyleSheet(action_button_style(PRIMARY_BUTTON_BG, ACTION_BUTTON_PADDING))
     return probe.sizeHint()
 
 
@@ -182,6 +188,39 @@ def match_action_button(button: QPushButton) -> None:
     button.setFixedSize(
         max(reference.width(), button.sizeHint().width()), reference.height()
     )
+
+
+def action_button(
+    text: str,
+    background: str = SECONDARY_BUTTON_BG,
+    padding: str = ACTION_BUTTON_PADDING,
+    *,
+    uniform: bool = False,
+) -> QPushButton:
+    """A button wearing the app's look: the one place a button is made.
+
+    Everything a button in this app needs is here rather than repeated at each
+    call site — the stylesheet, and `setAutoDefault(False)` so Enter runs the
+    window's or dialog's own default action instead of whichever button
+    happens to hold focus. A new button is then a single call, and cannot
+    quietly come out looking like Qt's default instead of like the rest.
+
+    The defaults are the common case: the neutral secondary gray at the full
+    header padding. Pass `background` for a button with a role of its own
+    (`PRIMARY_BUTTON_BG`, `NAV_BUTTON_BG`, `selection_button_bg()`) and
+    `padding` where a denser row wants it (`CONTROL_BAR_PADDING`).
+
+    `uniform` additionally freezes the button to the shared action size, for
+    a row where differing label widths would otherwise show — see
+    `match_action_button()`. It is off by default because a fixed size is
+    wrong for a button that has to grow with its layout.
+    """
+    button = QPushButton(text)
+    button.setStyleSheet(action_button_style(background, padding))
+    button.setAutoDefault(False)
+    if uniform:
+        match_action_button(button)
+    return button
 
 
 def splitter_style() -> str:
@@ -300,6 +339,36 @@ def scrollbar_style() -> str:
             width: 0; height: 0; border: none; background: none;
         }}
         QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+    """
+
+
+def menu_style() -> str:
+    """Qt stylesheet for the window's menu bar and its drop-downs.
+
+    Padding only — the font is left alone, so the menus grow as targets
+    without the rest of the window changing size around them.
+
+    Styling `::item` at all opts those items out of the native style's
+    rendering, hover included, so the selected state has to be restated here
+    or a menu would highlight nothing under the pointer. It is written in
+    `palette()` terms rather than pinned colors so it still follows the
+    desktop theme, the way the unstyled menu did.
+    """
+    return f"""
+        QMenuBar::item {{
+            padding: {MENU_BAR_ITEM_PADDING};
+            background: transparent;
+        }}
+        QMenuBar::item:selected, QMenuBar::item:pressed {{
+            background: palette(highlight);
+            color: palette(highlighted-text);
+        }}
+        QMenu {{ padding: 6px; }}
+        QMenu::item {{ padding: {MENU_ITEM_PADDING}; }}
+        QMenu::item:selected {{
+            background: palette(highlight);
+            color: palette(highlighted-text);
+        }}
     """
 
 

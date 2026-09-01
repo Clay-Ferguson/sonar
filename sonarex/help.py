@@ -5,44 +5,26 @@ QtGui, not a web engine or any other extra dependency. That is enough for
 headings, bullets and inline monospace, which is all this needs.
 
 Kept out of `window.py` so neither file has to know much about the other:
-this module imports nothing from the rest of the package, which is also what
-keeps `window` -> `help` from becoming a cycle.
+it imports only `style`, which sits below everything, so `window` -> `help`
+never becomes a cycle.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
+    QHBoxLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
 
-# Icon-theme names to try for the button, best first. Yaru supplies all of
-# these; a bare desktop install may supply none, which is what the drawn "?"
-# fallback in `help_icon` is for.
-ICON_NAMES = ("help-contents", "help-browser", "help-about", "help")
+from .style import action_button
 
 # Wide enough that no bullet wraps at the default font size — the list reads
 # as one item per line, which is most of what makes it scannable.
 MIN_WIDTH = 520
-
-
-def help_icon() -> QIcon:
-    """A question-mark icon from the desktop theme, or None if it has none.
-
-    Returns a null QIcon when nothing matches, which the caller checks: a
-    button showing a null icon is a blank button, so it falls back to drawing
-    the character itself rather than displaying nothing at all.
-    """
-    for name in ICON_NAMES:
-        icon = QIcon.fromTheme(name)
-        if not icon.isNull():
-            return icon
-    return QIcon()
 
 
 def _mono(text: str) -> str:
@@ -108,15 +90,20 @@ class HelpDialog(QDialog):
         body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        # Close is a "reject" button, so `rejected` is the signal it emits;
-        # `accepted` would never fire and the button would do nothing.
+        # A plain button rather than a QDialogButtonBox: the box supplies its
+        # own Close, styled by the native theme, which is exactly the button
+        # that would not match the rest of the app.
+        close = action_button("Close", uniform=True)
+        close.clicked.connect(self.reject)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(close)
 
         layout = QVBoxLayout(self)
         layout.addWidget(body)
         layout.addStretch(1)
-        layout.addWidget(buttons)
+        layout.addLayout(buttons)
 
 
 def show_help(parent: QWidget | None = None) -> None:
