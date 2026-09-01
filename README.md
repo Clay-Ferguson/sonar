@@ -63,7 +63,20 @@ Turn on **Search inside archives** in the settings dialog and a search also
 looks into `.zip`, `.tar`, `.tar.gz`, `.7z`, `.gz` and the other formats ugrep
 can decompress. A match inside one is listed as `archive.zip → path/inside.txt`
 and reads in the preview pane like any other file, with the same highlighting
-and Prev/Next. **Open** extracts it to a read-only temporary copy — edits to
+and Prev/Next.
+
+**How deep to look inside them** is the dropdown under it, 1 to 3. At 1 an
+archive found inside an archive is left alone; raise it and those are opened
+too, and the row names every level it went through:
+
+```
+bundle.tar.gz → vendor.zip → src/parser.py
+```
+
+Each level is another decompression pass over everything the level above it
+found, so leave it at 1 unless you actually keep archives inside archives.
+
+**Open** extracts the selected file to a read-only temporary copy — edits to
 that copy do not go back into the archive.
 
 Two things to know. The `included` patterns then apply to the files *inside* an
@@ -107,6 +120,7 @@ search:
     - "*/node_modules/*"
     - "*/.git/*"
   archives: false       # look inside .zip, .tar.gz, .7z, .gz …
+  archive_depth: 1      # 1-3: how many levels of archive-inside-archive
 
 open:
   command: "/usr/bin/code"
@@ -114,9 +128,10 @@ open:
 
 `excluded` skips the directories nobody means to search. `included` is a
 whitelist — leave it empty unless you want to search *only* certain file
-types, since any entry hides everything else. `archives` is the Search
-Archives checkbox (see below). `open.command` is what the Open button runs;
-the file is added as the last argument.
+types, since any entry hides everything else. `archives` and `archive_depth`
+are the Search Archives checkbox and its depth dropdown (see below).
+`open.command` is what the Open button runs; the file is added as the last
+argument.
 
 Edit all four from the gear button in the top row — one pattern per line in
 each list — or open the file directly. Either way the change applies the next

@@ -22,6 +22,7 @@ from html import escape
 from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -33,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import APP_NAME
+from .archive import MAX_DEPTH
 from .config import (
     CONFIG_PATH,
     Settings,
@@ -59,6 +61,16 @@ VISIBLE_LINES = 7
 # what makes the pair read as one thing.
 SECTION_SPACING = 14
 LABEL_SPACING = 4
+
+# What each --zmax value is called in the dropdown. A bare "1 / 2 / 3" says
+# nothing about what is being counted, and this is a setting most people will
+# look at exactly once; the number stays in front so the config file's
+# `archive_depth: 2` is still recognisable as the same thing.
+DEPTH_LABELS = [
+    "1 — archives only",
+    "2 — also archives inside archives",
+    "3 — three levels deep",
+]
 
 # Wide enough for a long exclusion path without wrapping it — these are read
 # as whole patterns, and a pattern broken across two lines is hard to check.
@@ -160,6 +172,21 @@ class SettingsDialog(QDialog):
                 " patterns."
             ),
         )
+        self.depth_combo = self._add_combo(
+            "How deep to look inside them:",
+            DEPTH_LABELS[:MAX_DEPTH],
+            settings.archive_depth,
+            tooltip=(
+                "Each level is another pass over what the one above it found,"
+                " so raise this\nonly if you keep archives inside archives."
+            ),
+        )
+        # Dim rather than hidden: the depth is still worth seeing when it is
+        # not in use, and it keeps the dialog from changing height under the
+        # pointer as the checkbox is clicked.
+        self.depth_combo.setEnabled(settings.archives)
+        self.archives_check.toggled.connect(self.depth_combo.setEnabled)
+
         self.open_edit = self._add_line(
             "Command the Open button runs (the file is added as the last argument):",
             settings.open_command,
@@ -245,6 +272,32 @@ class SettingsDialog(QDialog):
         self._layout.addWidget(check)
         return check
 
+    def _add_combo(
+        self, label: str, options: list[str], value: int, tooltip: str = ""
+    ) -> QComboBox:
+        """A labelled dropdown over 1..len(options), appended to the stack.
+
+        The value is the 1-based position, not the text, so the caller reads
+        `currentIndex() + 1` and never has to parse a label back into a number.
+        Sized to its contents and pushed left rather than stretched across the
+        dialog: a field as wide as the pattern areas would read as holding
+        something as large as they do.
+        """
+        self._begin_section(label, tooltip)
+        combo = QComboBox()
+        combo.addItems(options)
+        combo.setCurrentIndex(max(0, min(len(options) - 1, value - 1)))
+        combo.setToolTip(tooltip)
+        # Matched to the buttons, like the single-line fields, so the controls
+        # in this dialog are all one height.
+        combo.setFixedHeight(action_button_size().height())
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        row = QHBoxLayout()
+        row.addWidget(combo)
+        row.addStretch(1)
+        self._layout.addLayout(row)
+        return combo
+
     def _button_row(self) -> QHBoxLayout:
         """Save and Cancel, right-aligned, sized like the Search button.
 
@@ -274,6 +327,7 @@ class SettingsDialog(QDialog):
                 included=parse_pattern_lines(self.included_edit.toPlainText()),
                 excluded=parse_pattern_lines(self.excluded_edit.toPlainText()),
                 archives=self.archives_check.isChecked(),
+                archive_depth=self.depth_combo.currentIndex() + 1,
                 open_command=self.open_edit.text().strip(),
             )
         )

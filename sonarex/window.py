@@ -30,8 +30,8 @@ from PyQt6.QtWidgets import (
 )
 
 from . import APP_NAME
-from .archive import Hit, parse_result_line
-from .config import search_archives
+from .archive import Hit, member_levels, parse_result_line
+from .config import search_depth
 from .help import show_help
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
@@ -73,6 +73,11 @@ HIT_ROLE = Qt.ItemDataRole.UserRole
 # The Open button's tooltip, which changes with the selection: a hit inside an
 # archive opens a copy, and that is worth saying before the click rather than
 # after the user has edited one and found the archive unchanged.
+# What separates an archive from what was found inside it, in a row's label.
+# Spaced, because the names on either side of it are paths full of punctuation
+# already and an unspaced arrow disappears into them.
+ARROW = " → "
+
 OPEN_TIP = "Open this file in the editor"
 OPEN_TIP_ARCHIVED = (
     "Open a read-only copy extracted from the archive.\n"
@@ -105,11 +110,13 @@ class MainWindow(QMainWindow):
         # highlighting in the preview must keep meaning the search that found
         # these files rather than whatever has since been typed over it.
         self._search_query = ""
-        # Pinned at the start of a search alongside the root and the query,
-        # because it decides how a result is *read* as well as how it was
-        # found: clearing the checkbox mid-session must not turn the rows
-        # already on screen into files nothing can open.
-        self._search_archives = False
+        # Archive nesting, 0 when archives are off. Pinned at the start of a
+        # search alongside the root and the query, because it decides how a
+        # result is *read* as well as how it was found: changing the setting
+        # mid-session must not turn the rows already on screen into files
+        # nothing can open, and a member found three levels down can only be
+        # re-opened at the depth that reached it.
+        self._search_depth = 0
         # The current file's matches, flattened out of the spans dict and put in
         # reading order, plus where Prev/Next is parked in that list. A flat
         # list rather than the dict because stepping is what it is for: the dict
@@ -376,7 +383,7 @@ class MainWindow(QMainWindow):
         # and `_display_path` can rely on the prefix matching.
         self._search_root = folder
         self._search_query = query
-        self._search_archives = search_archives()
+        self._search_depth = search_depth()
         self._set_title("Searching…")
         self._runner.start(query, folder)
 
@@ -418,15 +425,20 @@ class MainWindow(QMainWindow):
 
         A hit inside an archive is labelled `archive.zip → name`, with the
         arrow rather than ugrep's own `archive.zip{name}` because the braces
-        read as part of a filename at a glance and the arrow does not. The
-        tooltip splits the two over separate lines, which is the one place the
-        full archive path and the full member name are both visible.
+        read as part of a filename at a glance and the arrow does not. Nesting
+        just adds arrows — `L1.zip → L2.tar.gz → inner.txt` — since ugrep joins
+        those levels with a colon, which reads as no boundary at all. The
+        tooltip is the same chain one level per line, indented, which is the
+        one place the full archive path and every name below it are visible.
         """
         label = self._display_path(hit.path)
         tooltip = hit.path
         if hit.member:
-            label = f"{label} → {hit.member}"
-            tooltip = f"{hit.member}\ninside {hit.path}"
+            levels = member_levels(hit.member, self._search_depth)
+            label = ARROW.join([label, *levels])
+            tooltip = "\n".join(
+                [hit.path] + [f"{'  ' * (n + 1)}{name}" for n, name in enumerate(levels)]
+            )
         item = QListWidgetItem(label)
         item.setData(HIT_ROLE, hit)
         # The full path stays reachable, since the row no longer shows it.
@@ -567,7 +579,7 @@ class MainWindow(QMainWindow):
         item = self.results.currentItem()
         if item is None:
             return
-        error = open_in_editor(item.data(HIT_ROLE))
+        error = open_in_editor(item.data(HIT_ROLE), self._search_depth)
         if error:
             self._report_problem(error)
 
@@ -624,7 +636,7 @@ class MainWindow(QMainWindow):
             self._adopt_matches({})
             return
 
-        text, is_notice = read_for_preview(hit, self._search_archives)
+        text, is_notice = read_for_preview(hit, self._search_depth)
         # A notice — binary, too large, unreadable — is this app's own words
         # rather than the file, so there is nothing in it ugrep matched and its
         # line numbers mean nothing. Asking ugrep about it would also be asking
@@ -632,7 +644,7 @@ class MainWindow(QMainWindow):
         spans = (
             {}
             if is_notice or not self._search_query
-            else match_spans(self._search_query, hit, self._search_archives)
+            else match_spans(self._search_query, hit, self._search_depth)
         )
         # Before setPlainText, not after: replacing the text is itself what
         # makes Qt run the highlighter over the document, so spans set first

@@ -42,12 +42,14 @@ the query only ever comes from the window.
   `Settings` is the file as a record and `load_settings()`/`save_settings()`
   are the dialog's whole interface to it; the rest of the app goes through the
   three accessors instead — `search_globs()` for the ugrep argv,
-  `search_archives()` for `-z`, `open_command()` for the editor — all read at
-  the moment of use so a saved change needs no restart and no notification.
-  `get_bool()` is the reader behind the third and the only one that takes a
-  non-string, non-list value. `convert_excluded_pattern()`
-  turns find-style `*/name/*` into ugrep's `!name/`. Loading is forgiving by
-  design (see below).
+  `search_depth()` for `-z`/`--zmax`, `open_command()` for the editor — all
+  read at the moment of use so a saved change needs no restart and no
+  notification. `search_depth()` folds two keys into one number, returning 0
+  when archive searching is off, because 0 is the whole of what "off" means to
+  every caller; the keys stay separate on disk so clearing the checkbox does
+  not discard the depth. `get_bool()`/`get_int()` are the readers behind it.
+  `convert_excluded_pattern()` turns find-style `*/name/*` into ugrep's
+  `!name/`. Loading is forgiving by design (see below).
 - `sonarex/archive.py` — everything that knows what an archive member *is*.
   `Hit(path, member)` is what the app carries instead of a path string, with
   `member` empty for an ordinary file; `parse_result_line()` turns one line of
@@ -64,9 +66,9 @@ the query only ever comes from the window.
   second, much smaller ugrep call: one named file, `-o -u`, and a `--format`
   that reports where the query matched inside it. That one is synchronous —
   ~16ms at the preview's size cap, so it does not need a `QProcess` — and it
-  answers `{}` rather than raising on any failure. Both grow an `archives`
-  flag: it puts `-z` on the argv and a `%z` on the format, and is the whole of
-  what archive searching costs the search side. `literal_query_term()`
+  answers `{}` rather than raising on any failure. Both grow a `depth`:
+  non-zero puts `-z` and `--zmax` on the argv and a `%z` on the format, and is
+  the whole of what archive searching costs the search side. `literal_query_term()`
   also lives here, because it is about the query language rather than about
   PDFs: it reduces a Boolean query to one plain string for Qt's PDF search,
   which knows no regexes, no AND/OR and no negation.
@@ -95,9 +97,12 @@ the query only ever comes from the window.
   `_go_to_match()` are all Prev/Next needs to work over either. `HIT_ROLE`
   carries a whole `Hit` rather than a path — one role, because the two halves
   are never meaningful apart and `_sort_by_mtime()` rebuilds every row from it.
-  `_search_archives` is pinned in `start_search()` beside `_search_root` and
-  `_search_query`, so clearing the checkbox mid-session cannot turn rows
-  already on screen into files nothing can read. Open's tooltip is the one
+  `_search_depth` is pinned in `start_search()` beside `_search_root` and
+  `_search_query`, so changing the setting mid-session cannot turn rows already
+  on screen into files nothing can read — a member found three levels down is
+  only reachable again at the depth that found it. It also decides the label:
+  `member_levels()` is what turns one member into
+  `L1.zip → L2.tar.gz → inner.txt`. Open's tooltip is the one
   control that changes with the selection (`OPEN_TIP`/`OPEN_TIP_ARCHIVED`):
   a member opens a *copy*, which is worth saying before the click rather than
   after someone has edited one and found the archive unchanged.
@@ -117,9 +122,10 @@ the query only ever comes from the window.
   folder-row `…`), `NAV_BUTTON_BG` for Prev/Next, `selection_button_bg()` for
   Open — so a new button picks a role rather than a hex value.
 - `sonarex/settings.py` — the Options ▸ Settings dialog: one text area per pattern
-  list (one pattern per line), a checkbox for Search Archives, and a line edit
-  for the Open command. A future setting is one more
-  `_add_patterns()`/`_add_line()`/`_add_check()` call plus a field on
+  list (one pattern per line), a checkbox for Search Archives, a dropdown for
+  how deep it goes, and a line edit for the Open command. A future setting is
+  one more `_add_patterns()`/`_add_line()`/`_add_check()`/`_add_combo()` call
+  plus a field on
   `Settings`; the dialog sizes to its contents, so nothing else has to change.
 - `sonarex/viewer.py` — `read_for_preview()`: size cap, binary sniff, decode.
   Always returns a string, never raises. It takes a `Hit` and the setting the
@@ -224,6 +230,36 @@ the query only ever comes from the window.
   glob. It also replaces glob metacharacters with `?` rather than escaping
   them: `?` is one character wide, so the substitution can only widen, and a
   member called `a[1].txt` is not read as a character class.
+
+- **A nested member is one `%z`, colon-joined, not nested braces.** At
+  `--zmax=3` ugrep prints `L1.zip{L2.tar.gz:L3.zip:inner.txt}` — one brace pair,
+  the levels separated by ':'. So `parse_result_line` needed no change at all;
+  only the *label* did. A colon is legal in a filename, which is why
+  `member_levels()` refuses to split below depth 2: at one level there is no
+  chain a colon could be part of, so `notes:draft.txt` stays one name for
+  everyone who has not turned nesting on. Above that the ambiguity is real and
+  unresolvable, and it costs a wrong label only — every other use of a member
+  matches the exact `%z` string, never the split pieces.
+
+- **A `-g` at depth must name the file at the *bottom* of the chain.**
+  `-g 'inner.txt'` reaches `L1.zip{L2.tar.gz:L3.zip:inner.txt}`; `-g` on the
+  whole colon chain matches nothing. That is what `member_name()` is for, and
+  it takes the depth for the reason above — splitting on the last colon
+  unconditionally turns a member honestly called `notes:draft.txt` into
+  `draft.txt`, whose glob then reaches nothing. Verified both ways.
+
+- **`--zmax=0` is not "off", it is an error.** ugrep rejects it outright
+  (`invalid argument --zmax=0`, exit 2), and since `extract()` reports every
+  failure as None, a 0 arriving there would surface as "this file cannot be
+  read" rather than as the bug it is. 0 is a real value in this app — it is how
+  `search_depth()` says archives are off — so `build_extract_argv` floors it
+  at 1.
+
+- **The depth has to be pinned with the search, not read at preview time.** A
+  member found at three levels is not reachable at one: the same `--zmax` has
+  to go to `match_spans` and `extract` as went to the search, or a file plainly
+  on screen comes back unreadable and unhighlighted. This is the same reason
+  `_search_root` and `_search_query` are pinned, with a sharper failure.
 
 - **`%f` already contains the braces; `%z` is the member alone.** A result line
   is `archive.zip{member}` + separator + `member`, and the redundancy is the
@@ -437,6 +473,17 @@ be refused by Open; that Open on a text member leaves one read-only copy with
 the right basename which `closeEvent` then removes; and that Open's tooltip
 follows the selection between its two texts.
 
+For nesting, build one archive inside another inside a third and search a
+directory holding *only* the outermost — the staging copies are hits too, and
+they make the result set unreadable. Worth covering: that depth 1 does not
+reach the nested file and depth 3 does; that the row reads
+`L1.zip → L2.tar.gz → L3.zip → inner.txt` while `HIT_ROLE` still holds the raw
+colon-joined member; that the extracted copy is named `inner.txt` and not the
+whole chain; that a member called `notes:draft.txt` in a plain zip is one level
+at depth 1 and still previews; and that `read_for_preview` at the *wrong* depth
+returns a notice, which is the check that keeps `_search_depth` from being
+"simplified" into a fresh `search_depth()` call.
+
 The settings dialog is drivable the same way — `SettingsDialog()` constructs
 without the main window, and `_save()` can be called directly instead of
 clicking. Point `config.CONFIG_PATH` at a temp file first: it is read at call
@@ -456,14 +503,10 @@ touches the real `~/.config`.
   means a real extractor — `unzip -p`, `tar -xOf`, `7z e -so` — instead of
   ugrep, since ugrep's output is lines; a temp file would then also let
   `PdfPane` render an archived PDF.
-- Nested archives. `--zmax` defaults to 1, so a `.zip` inside a `.tar.gz` shows
-  up as one binary row (`outer.tar.gz{docs.zip}`) rather than as its contents.
-  Raising it is one flag and the output shape survives it — the levels are
-  joined with ':' inside a single brace pair,
-  `outer.tar.gz{docs.zip:doc/one.txt}`, so `parse_result_line` needs no change
-  — but every level costs, `member_glob` would be globbing the wrong
-  half of that name, and extraction would need the same `--zmax` passed
-  through.
+- More than three levels of nesting. `--zmax` accepts 1..99; the dialog offers
+  1..3 (`archive.MAX_DEPTH`) because each level is another decompression pass
+  and three is already past what an ordinary tree holds. Raising the ceiling is
+  one constant and one more entry in `settings.DEPTH_LABELS`.
 - Further settings. The dialog is built to grow — another `_add_patterns()` or
   `_add_line()` call and it re-sizes itself — and `render_config()` carries
   unknown keys through, so an option can be added on either side first.

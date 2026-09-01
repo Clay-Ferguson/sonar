@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 from typing import NamedTuple
 
+from .archive import MAX_DEPTH
+
 # PyYAML is a declared dependency, so this import normally succeeds. It is
 # still guarded because the failure mode matters: running the module without
 # the virtualenv (say, a bare `python3 -m sonarex`) should degrade to an
@@ -61,6 +63,13 @@ DEFAULT_EXCLUDED = [
 # is a fine thing to ask for and a surprising thing to be given.
 DEFAULT_ARCHIVES = False
 
+# How many levels of archive to open when archive searching is on: ugrep's
+# --zmax. 1 is ugrep's own default and means "look inside an archive, but treat
+# an archive found inside that one as a binary file". Raising it is what finds
+# `L1.zip{L2.tar.gz:L3.zip:inner.txt}`, and costs a decompression pass per
+# level, which is why it is a choice rather than simply set high.
+DEFAULT_ARCHIVE_DEPTH = 1
+
 # The command the Open button runs when nothing else is configured. Carried
 # over from the Nautilus version, which spawned exactly this.
 DEFAULT_OPEN_COMMAND = "/usr/bin/code"
@@ -77,10 +86,13 @@ class Settings(NamedTuple):
     included: list[str]
     excluded: list[str]
     archives: bool
+    archive_depth: int
     open_command: str
 
 
-DEFAULTS = Settings([], DEFAULT_EXCLUDED, DEFAULT_ARCHIVES, DEFAULT_OPEN_COMMAND)
+DEFAULTS = Settings(
+    [], DEFAULT_EXCLUDED, DEFAULT_ARCHIVES, DEFAULT_ARCHIVE_DEPTH, DEFAULT_OPEN_COMMAND
+)
 
 
 # The comment block at the top of the file, and the ones introducing each
@@ -126,6 +138,12 @@ ARCHIVES_COMMENT = """\
   # else in it. Archives whose extension ugrep does not know (.jar, .docx,
   # .epub are all really zips) are only opened if you add that extension to
   # "included" yourself.
+"""
+
+ARCHIVE_DEPTH_COMMENT = """\
+  # How many levels deep to look, when the above is on. 1 opens an archive;
+  # 2 also opens an archive found inside one, and so on. Each level costs
+  # another pass, so raise it only if you keep archives inside archives.
 """
 
 
@@ -187,7 +205,9 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
     opening = _section(config.get("open"))
 
     extra_search = {
-        k: v for k, v in search.items() if k not in ("included", "excluded", "archives")
+        k: v
+        for k, v in search.items()
+        if k not in ("included", "excluded", "archives", "archive_depth")
     }
     extra_open = {k: v for k, v in opening.items() if k != "command"}
     extra_top = {k: v for k, v in config.items() if k not in ("search", "open")}
@@ -201,6 +221,9 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
         + "\n"
         + ARCHIVES_COMMENT
         + f"  archives: {'true' if settings.archives else 'false'}\n"
+        + "\n"
+        + ARCHIVE_DEPTH_COMMENT
+        + f"  archive_depth: {settings.archive_depth}\n"
         + _indent_yaml(extra_search, "  ")
         + "\nopen:\n"
         + OPEN_COMMENT
@@ -312,6 +335,25 @@ def get_bool(config: dict, section: str, key: str, default: bool) -> bool:
     return value if isinstance(value, bool) else default
 
 
+def get_int(
+    config: dict, section: str, key: str, default: int, low: int, high: int
+) -> int:
+    """`<section>.<key>` from `config` as an int clamped to [low, high].
+
+    Clamped rather than rejected, since a number out of range says clearly
+    enough what was wanted. `bool` is excluded explicitly: it is a subclass of
+    `int` in Python, so a stray `archive_depth: true` would otherwise be read
+    as the number 1 rather than as the mistake it is.
+    """
+    values = config.get(section)
+    if not isinstance(values, dict):
+        return default
+    value = values.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return max(low, min(high, value))
+
+
 def convert_excluded_pattern(pattern: str) -> str:
     """A find-style exclusion pattern as a ugrep `-g` glob.
 
@@ -358,9 +400,21 @@ def search_globs() -> list[str]:
     )
 
 
-def search_archives() -> bool:
-    """Whether searches should reach inside archives, read at the moment of use."""
-    return get_bool(load_config(), "search", "archives", DEFAULT_ARCHIVES)
+def search_depth() -> int:
+    """How many archive levels a search should open: 0 when it should not.
+
+    One number carries both settings, because everything downstream wants
+    exactly that: `-z` and `--zmax` go on together, and 0 is the whole of what
+    "archive searching is off" means to a caller. The two keys stay separate in
+    the file so that clearing the checkbox does not throw away the depth the
+    user picked.
+    """
+    config = load_config()
+    if not get_bool(config, "search", "archives", DEFAULT_ARCHIVES):
+        return 0
+    return get_int(
+        config, "search", "archive_depth", DEFAULT_ARCHIVE_DEPTH, 1, MAX_DEPTH
+    )
 
 
 def open_command() -> str:
@@ -403,6 +457,9 @@ def load_settings() -> tuple[Settings, str | None]:
             included=get_patterns(config, "included"),
             excluded=get_patterns(config, "excluded"),
             archives=get_bool(config, "search", "archives", DEFAULT_ARCHIVES),
+            archive_depth=get_int(
+                config, "search", "archive_depth", DEFAULT_ARCHIVE_DEPTH, 1, MAX_DEPTH
+            ),
             open_command=get_string(config, "open", "command", DEFAULT_OPEN_COMMAND),
         ),
         error,

@@ -19,7 +19,7 @@ import subprocess
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
 from .archive import RESULT_FORMAT, SEPARATOR, Hit, member_glob
-from .config import search_archives, search_globs
+from .config import search_depth, search_globs
 
 # Exit statuses, confirmed against ugrep 7.5.0. The distinction that matters is
 # 1 vs 2: "nothing matched" is an ordinary outcome to report in the status
@@ -60,17 +60,21 @@ def build_argv(query: str, folder: str) -> list[str]:
     searched for rather than parsed as an option, and `folder` is passed
     absolute so every path ugrep prints is absolute too.
 
-    With Search Archives on, three more flags go on: `-z` to look inside
-    archives, and a `--separator` plus `--format` so a hit inside one arrives
-    as its two halves rather than as ugrep's ambiguous `archive.zip{member}`.
-    With it off the argv is byte-for-byte what it has always been — the whole
-    feature stays off the ordinary code path.
+    With Search Archives on, four more flags go on: `-z` to look inside
+    archives, `--zmax` for how many levels of them, and a `--separator` plus
+    `--format` so a hit inside one arrives as its two halves rather than as
+    ugrep's ambiguous `archive.zip{member}`. With it off the argv is
+    byte-for-byte what it has always been — the whole feature stays off the
+    ordinary code path.
     """
     argv = ["ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files"]
     if shutil.which("pdftotext"):
         argv.append(PDF_FILTER)
-    if search_archives():
-        argv.extend(["-z", f"--separator={SEPARATOR}", RESULT_FORMAT])
+    depth = search_depth()
+    if depth:
+        argv.extend(
+            ["-z", f"--zmax={depth}", f"--separator={SEPARATOR}", RESULT_FORMAT]
+        )
     argv.extend(search_globs())
     argv.extend(["--", query, folder])
     return argv
@@ -149,7 +153,7 @@ ARCHIVE_MATCH_FORMAT = "--format=%z%s%n %k %j%~"
 MATCH_TIMEOUT = 10
 
 
-def build_match_argv(query: str, hit: Hit, archives: bool) -> list[str]:
+def build_match_argv(query: str, hit: Hit, depth: int) -> list[str]:
     """The ugrep command line that reports where `query` matches inside one file.
 
     The query-shaping flags are exactly `build_argv`'s -i, -% and --files, so
@@ -166,21 +170,31 @@ def build_match_argv(query: str, hit: Hit, archives: bool) -> list[str]:
     would bite: -g filters explicitly named file arguments too, so passing them
     here returns nothing for the very file the search just found.
 
-    With `archives` on, `-z` goes back on and the format grows a `%z` so the
-    lines can be attributed to a member. The `-g` here is the exception to the
-    paragraph above and is safe for the same reason it was unsafe there: under
-    -z a glob is matched against the names *inside* the archive, not against
-    the archive named on the command line. Line and column mean exactly what
-    they did before — verified, `-z` on an ordinary file leaves the spans
-    identical and merely prefixes an empty `%z`.
+    A non-zero `depth` puts `-z` back on and grows the format a `%z`, so the
+    lines can be attributed to a member. It has to be the same `--zmax` the
+    search ran with: a member three levels down is not reachable at one, and
+    the spans would come back empty for a file that is plainly on screen.
+
+    The `-g` here is the exception to the paragraph above and is safe for the
+    same reason it was unsafe there: under -z a glob is matched against the
+    names *inside* the archive, not against the archive named on the command
+    line. Line and column mean exactly what they did before — verified, `-z` on
+    an ordinary file leaves the spans identical and merely prefixes an empty
+    `%z`.
     """
     argv = ["ugrep", "-i", "-%", "--files", "-o", "-u"]
-    if archives:
+    if depth:
         argv.extend(
-            ["-z", "--no-messages", f"--separator={SEPARATOR}", ARCHIVE_MATCH_FORMAT]
+            [
+                "-z",
+                f"--zmax={depth}",
+                "--no-messages",
+                f"--separator={SEPARATOR}",
+                ARCHIVE_MATCH_FORMAT,
+            ]
         )
         if hit.member:
-            argv.extend(["-g", member_glob(hit.member)])
+            argv.extend(["-g", member_glob(hit.member, depth)])
     else:
         argv.append(MATCH_FORMAT)
     argv.extend(["--", query, hit.path])
@@ -200,7 +214,7 @@ def _match_length(field: str) -> int:
 
 
 def match_spans(
-    query: str, hit: Hit, archives: bool = False
+    query: str, hit: Hit, depth: int = 0
 ) -> dict[int, list[tuple[int, int]]]:
     """Where `query` matches in `hit`: 0-based line -> [(column, length)].
 
@@ -214,7 +228,7 @@ def match_spans(
     """
     try:
         completed = subprocess.run(
-            build_match_argv(query, hit, archives),
+            build_match_argv(query, hit, depth),
             capture_output=True,
             text=True,
             timeout=MATCH_TIMEOUT,
@@ -230,7 +244,7 @@ def match_spans(
     # the expected member exactly, rather than splitting on the separator, is
     # what keeps two members of one basename apart — and is correct even for a
     # member name containing a tab, since the name is known in advance.
-    prefix = hit.member + SEPARATOR if archives else ""
+    prefix = hit.member + SEPARATOR if depth else ""
     # Split on "\n" rather than splitlines() for the same reason `_read_stdout`
     # does: a matched string can contain \v, \f or \x85, and %j escapes none of
     # them, so splitlines() would tear one match into two unparseable halves.

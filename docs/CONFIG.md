@@ -39,6 +39,9 @@ search:
   # Look inside .zip, .tar.gz, .7z, .gz and the rest. Off by default.
   archives: false
 
+  # How many levels of archive-inside-archive to open, 1 to 3.
+  archive_depth: 1
+
 open:
   # The command the Open button runs.
   command: "/usr/bin/code"
@@ -114,6 +117,29 @@ Files inside an archive that are not text — a PDF, an image — are still foun
 and listed, but the preview names them instead of showing them, and **Open**
 declines rather than handing an editor a mangled copy.
 
+## `search.archive_depth`
+
+`1`, `2` or `3`, default `1`. The **How deep to look inside them** dropdown,
+which is ugrep's `--zmax`. It only does anything when `search.archives` is on,
+and it is kept separately from it so that turning archive searching off and
+back on does not lose the depth you picked.
+
+At `1` an archive found *inside* an archive is treated as a binary file and
+left alone. Raise it and those are opened too, and the row names every level:
+
+```
+bundle.tar.gz → vendor.zip → src/parser.py
+```
+
+Each level is another decompression pass over everything the level above it
+produced, so the cost grows with the setting. Leave it at `1` unless you
+actually keep archives inside archives.
+
+Out-of-range values are clamped rather than rejected — `archive_depth: 99`
+means 3 — since a number outside the range says clearly enough what was wanted.
+ugrep itself allows up to 99; Sonar offers 3 because past that the cost is real
+and the case is rare.
+
 ## `open.command`
 
 The command the **Open** button runs on the selected file. It defaults to
@@ -166,6 +192,9 @@ Every failure degrades to "no patterns", never to an error:
   clearing the field in the dialog resets it rather than breaking Open.
 - **A non-boolean `search.archives`** (`"yes"`, `1`) — read as `false`, so a
   typo means archives are not searched rather than a broken search.
+- **A non-integer `search.archive_depth`** (`"2"`, `true`) — the default of 1
+  is used. `true` counts as a mistake here even though Python calls a bool an
+  int; out-of-range numbers are clamped instead.
 - **Non-string entries** in a list — dropped individually.
 
 A search never fails because of a typo in this file. If results look wrong,

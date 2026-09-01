@@ -58,6 +58,18 @@ RESULT_FORMAT = "--format=%f%s%z%~"
 # Extraction: the member name, then the line, for every line of the file.
 EXTRACT_FORMAT = "--format=%z%s%O%~"
 
+# What ugrep puts between the levels of a member found inside an archive that
+# was itself inside an archive: `L1.zip{L2.tar.gz:L3.zip:inner.txt}`. Only
+# reachable above --zmax=1, which is why `member_levels` will not split below
+# it — a colon is legal in a filename, and at one level there is no chain for
+# it to be confused with.
+LEVEL_SEPARATOR = ":"
+
+# The ceiling offered for --zmax. ugrep itself allows 1..99, but every level
+# costs and three is already past what an ordinary tree holds; the dialog
+# offers exactly this many.
+MAX_DEPTH = 3
+
 # Seconds. Extraction is synchronous, on the GUI thread, for the same reason
 # `match_spans` is: at the preview's size cap it is a few tens of milliseconds.
 # The ceiling is here because a pathological archive should cost a missing
@@ -151,13 +163,51 @@ def parse_result_line(line: str) -> Hit:
     return Hit(line)
 
 
-def member_glob(member: str) -> str:
+def member_levels(member: str, depth: int) -> list[str]:
+    """`member` split into one name per archive level, outermost first.
+
+        ("doc/one.txt", 1)                    -> ["doc/one.txt"]
+        ("L2.tar.gz:L3.zip:inner.txt", 3)     -> ["L2.tar.gz", "L3.zip", "inner.txt"]
+
+    Only split above depth 1, because a colon is a legal character in a
+    filename and at one level there is no chain it could be part of: a member
+    honestly called `notes:draft.txt` stays one name for everyone who has not
+    turned nesting on, which is the default. Above that the ambiguity is real
+    and unresolvable — ugrep reports the joined string and nothing else — so a
+    colon in a name is shown as though it were a level. It costs a wrong label
+    and nothing more: every other use of a member matches the exact `%z`
+    string, never these pieces.
+    """
+    if depth <= 1:
+        return [member]
+    return member.split(LEVEL_SEPARATOR)
+
+
+def member_name(member: str, depth: int) -> str:
+    """The name of the file at the bottom of `member`'s chain of archives.
+
+        ("doc/one.txt", 1)                 -> "one.txt"
+        ("L2.tar.gz:L3.zip:doc/in.txt", 3) -> "in.txt"
+
+    Depth-aware for the reason `member_levels` is, and this is where it
+    matters most: taking the part after the last colon unconditionally would
+    turn a member honestly called `notes:draft.txt` into `draft.txt`, and a
+    glob built from that reaches nothing at all — verified, ugrep exits 1 for
+    the very member `-g 'notes:draft.txt'` finds.
+    """
+    return os.path.basename(member_levels(member, depth)[-1])
+
+
+def member_glob(member: str, depth: int) -> str:
     """A ugrep `-g` glob that reaches `member` inside its archive.
 
-    The basename only. A glob containing '/' is matched against filesystem
-    pathnames and never against a path inside an archive: verified, `-g
-    'doc-src/Makefile'` returns nothing for the very member that `-g
-    'Makefile'` finds.
+    The innermost basename only. A glob containing '/' is matched against
+    filesystem pathnames and never against a path inside an archive: verified,
+    `-g 'doc-src/Makefile'` returns nothing for the very member that `-g
+    'Makefile'` finds. Nesting works the same way — the glob has to name the
+    file at the bottom of the chain, so `-g 'inner.txt'` reaches
+    `L1.zip{L2.tar.gz:L3.zip:inner.txt}` and `-g` on the whole chain matches
+    nothing at all.
 
     Glob metacharacters in the name are replaced by '?' rather than escaped.
     '?' matches exactly one character, so the substitution is length-preserving
@@ -166,26 +216,40 @@ def member_glob(member: str) -> str:
     Widening is free here because every caller filters the output by the exact
     `%z` anyway, which is also what keeps two members sharing a basename apart.
     """
-    name = os.path.basename(member)
+    name = member_name(member, depth)
     return "".join("?" if ch in GLOB_METACHARACTERS else ch for ch in name)
 
 
-def build_extract_argv(hit: Hit) -> list[str]:
+def build_extract_argv(hit: Hit, depth: int) -> list[str]:
     """The ugrep command line that prints `hit`'s content, one line at a time.
 
     An empty pattern matches every line, so `%O` (the matching line) walks the
     whole file. `-z` is what does the decompressing; the `-g` narrows a
     multi-member archive down to the one wanted, and is left off entirely for a
     plain compressed file, which has no member to name.
+
+    `depth` has to be the same `--zmax` the search ran with, or a member found
+    at three levels down is simply not there to extract at one. It is floored
+    at 1 because 0 is a real value elsewhere — it is how the rest of the app
+    says "archives are off" — but ugrep rejects `--zmax=0` outright, and a
+    rejected argv would come back here as an unreadable file rather than as
+    the programming mistake it is.
     """
-    argv = ["ugrep", "-z", "--no-messages", f"--separator={SEPARATOR}", EXTRACT_FORMAT]
+    argv = [
+        "ugrep",
+        "-z",
+        f"--zmax={max(1, depth)}",
+        "--no-messages",
+        f"--separator={SEPARATOR}",
+        EXTRACT_FORMAT,
+    ]
     if hit.member:
-        argv.extend(["-g", member_glob(hit.member)])
+        argv.extend(["-g", member_glob(hit.member, depth)])
     argv.extend(["-e", "", "--", hit.path])
     return argv
 
 
-def extract(hit: Hit, limit: int) -> bytes | None:
+def extract(hit: Hit, limit: int, depth: int = 1) -> bytes | None:
     """`hit`'s content as bytes, or None if it could not be read.
 
     At most `limit + 1` bytes come back: one past the caller's own cap, so it
@@ -210,7 +274,7 @@ def extract(hit: Hit, limit: int) -> bytes | None:
     prefix = (hit.member + SEPARATOR).encode("utf-8", "surrogateescape")
     try:
         process = subprocess.Popen(
-            build_extract_argv(hit),
+            build_extract_argv(hit, depth),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )

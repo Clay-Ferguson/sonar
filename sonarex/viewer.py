@@ -26,7 +26,7 @@ import subprocess
 import tempfile
 
 from . import archive
-from .archive import Hit
+from .archive import Hit, member_name
 from .config import open_command
 
 # Where the selected file goes in a configured command, if the user says.
@@ -94,7 +94,7 @@ def _too_large(size: str, where: str) -> str:
     )
 
 
-def _read_compressed(hit: Hit) -> tuple[str, bool]:
+def _read_compressed(hit: Hit, depth: int) -> tuple[str, bool]:
     """`read_for_preview` for a file ugrep had to decompress to search.
 
     Two shapes reach here: a named member of an archive, and a plain
@@ -117,7 +117,7 @@ def _read_compressed(hit: Hit) -> tuple[str, bool]:
             True,
         )
 
-    data = archive.extract(hit, MAX_PREVIEW_BYTES)
+    data = archive.extract(hit, MAX_PREVIEW_BYTES, depth)
     if data is None:
         return (
             f"Cannot read this file out of the archive:\n\n{where}\n\n"
@@ -134,7 +134,7 @@ def _read_compressed(hit: Hit) -> tuple[str, bool]:
     return (data.decode("utf-8", "replace"), False)
 
 
-def read_for_preview(hit: Hit, archives: bool = False) -> tuple[str, bool]:
+def read_for_preview(hit: Hit, depth: int = 0) -> tuple[str, bool]:
     """The text to show for `hit`, and whether it is a notice rather than content.
 
     The caller uses the flag only to style the pane; both cases are just text.
@@ -145,14 +145,16 @@ def read_for_preview(hit: Hit, archives: bool = False) -> tuple[str, bool]:
     all: `pdfview.PdfPane` renders them, and this is only their fallback for
     when it cannot.
 
-    `archives` is the setting the *search* ran with, not the current one, so a
-    result found before the checkbox was cleared still previews the way it was
-    found. Under it, a member and a plain compressed file both divert to
+    `depth` is the archive nesting the *search* ran with — 0 for a search that
+    had archives off — rather than whatever the settings say now, so a result
+    found before the checkbox was cleared still previews the way it was found,
+    and a member three levels down is re-opened at the depth that reached it.
+    Under a non-zero one, a member and a plain compressed file both divert to
     `_read_compressed`; everything else reads straight off the disk as always.
     """
     path = hit.path
-    if archives and (hit.member or archive.is_compressed(path)):
-        return _read_compressed(hit)
+    if depth and (hit.member or archive.is_compressed(path)):
+        return _read_compressed(hit, depth)
 
     try:
         size = os.path.getsize(path)
@@ -195,7 +197,7 @@ _temp_root: str | None = None
 _temp_count = 0
 
 
-def _temp_copy(hit: Hit) -> tuple[str | None, str | None]:
+def _temp_copy(hit: Hit, depth: int) -> tuple[str | None, str | None]:
     """Extract `hit` to a file on disk. Returns (path, error); one is None.
 
     The copy is made read-only, which is the closest this can come to being
@@ -205,11 +207,12 @@ def _temp_copy(hit: Hit) -> tuple[str | None, str | None]:
     """
     global _temp_root, _temp_count
 
-    data = archive.extract(hit, MAX_ARCHIVE_OPEN_BYTES)
+    name = member_name(hit.member, depth)
+    data = archive.extract(hit, MAX_ARCHIVE_OPEN_BYTES, depth)
     if data is None:
         return (
             None,
-            f"Cannot read '{os.path.basename(hit.member)}' out of the archive:\n\n"
+            f"Cannot read '{name}' out of the archive:\n\n"
             f"{hit.path}\n\nIt may be encrypted, corrupt, or in a format ugrep "
             "cannot decompress.",
         )
@@ -219,7 +222,7 @@ def _temp_copy(hit: Hit) -> tuple[str | None, str | None]:
         # worse than saying no.
         return (
             None,
-            f"'{os.path.basename(hit.member)}' is not a text file, and Sonar "
+            f"'{name}' is not a text file, and Sonar "
             "can only extract text out of an archive.\n\nOpen the archive "
             "itself to get at it.",
         )
@@ -230,7 +233,10 @@ def _temp_copy(hit: Hit) -> tuple[str | None, str | None]:
         _temp_count += 1
         folder = os.path.join(_temp_root, str(_temp_count))
         os.mkdir(folder)
-        path = os.path.join(folder, os.path.basename(hit.member))
+        # The name at the bottom of the chain, not the chain: a temp file
+        # called `L2.tar.gz:L3.zip:inner.txt` tells the editor it is looking at
+        # a tarball, and the extension is the whole point of keeping the name.
+        path = os.path.join(folder, name)
         with open(path, "wb") as handle:
             handle.write(data)
         os.chmod(path, 0o444)
@@ -295,7 +301,7 @@ def build_open_argv(command: str, path: str) -> list[str]:
     return parts + [path]
 
 
-def open_in_editor(hit: Hit) -> str | None:
+def open_in_editor(hit: Hit, depth: int = 0) -> str | None:
     """Open `hit` with the configured command. An error message, or None.
 
     A hit inside an archive is extracted to a read-only temporary copy first
@@ -334,7 +340,7 @@ def open_in_editor(hit: Hit) -> str | None:
         # read-only copy and that is what gets opened. The copy is a copy:
         # edits to it never reach the archive, which the button's tooltip says
         # and the file's permissions repeat.
-        path, error = _temp_copy(hit)
+        path, error = _temp_copy(hit, depth)
         if error:
             return error
 
