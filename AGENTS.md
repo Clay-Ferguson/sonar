@@ -252,10 +252,21 @@ the query only ever comes from the window.
   disassembly, the only branch in it being shadows-or-not — and takes no font,
   palette or environment input. Measured at 10pt and 16pt: 30px both times,
   against adwaita's 49. So there is no knob for either, and the app paints its
-  own border *inside* the window instead: `WINDOW_BORDER_WIDTH`,
-  `window_border_style()`, and the `windowFrame`/`windowBody` pair in
-  `MainWindow`. Flush against the decoration's 3px and in the same color, so
-  the two read as one. Set the constant to 0 and the layout is what it was.
+  own border *inside* the window instead: `WINDOW_BORDER_WIDTH` and
+  `bordered_body()`, which every top-level window calls — `MainWindow`,
+  `SettingsDialog`, `HelpDialog` — so a dialog does not read as a
+  differently-made window. It returns the widget to build into, which is not
+  the one passed in: a border is a color the content must not sit on, so
+  `windowFrame` is painted in it and `windowBody` in the ordinary surface
+  color. Flush against the decoration's 3px and in the same color, so the two
+  read as one. `MainWindow` passes `top=0` because the menu bar above carries
+  its own inset. Set the constant to 0 and the layout is what it was.
+
+  `QWidget#windowFrame` matches a `QDialog` too — Qt type selectors match
+  subclasses, unlike CSS — which is why one rule covers all three. The check
+  that this actually paints, rather than merely lays out, is `grab()`: it
+  renders under `offscreen`, so a pixel a few px in from the edge can be
+  compared against `TITLEBAR_BG` directly.
 
 - **`QMenuBar` ignores `margin-top` and `margin-bottom`, and applies
   `margin-left`/`margin-right` to its height as well.** Measured: a 20px

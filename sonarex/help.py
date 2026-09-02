@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .style import action_button
+from .style import action_button, bordered_body
 
 # Wide enough that no bullet wraps at the default font size — the list reads
 # as one item per line, which is most of what makes it scannable.
@@ -100,7 +100,7 @@ class HelpDialog(QDialog):
         buttons.addStretch(1)
         buttons.addWidget(close)
 
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(bordered_body(self))
         layout.addWidget(body)
         layout.addStretch(1)
         layout.addLayout(buttons)

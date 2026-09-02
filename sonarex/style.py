@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QProxyStyle,
     QPushButton,
     QStyle,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -442,6 +443,42 @@ def window_border_style() -> str:
         QWidget#windowFrame {{ background: {TITLEBAR_BG}; }}
         QWidget#windowBody {{ background: {body_window_color().name()}; }}
     """
+
+
+def bordered_body(frame: QWidget, top: int = WINDOW_BORDER_WIDTH) -> QWidget:
+    """Give `frame` the window border, and return the widget to build inside.
+
+    Two widgets are needed rather than one, because a border is a color the
+    content must not sit on: `frame` is painted in the border color and insets
+    what it holds, and the widget handed back is painted in the ordinary
+    surface color. Build into the return value, not into `frame`.
+
+    `top` exists for the main window, whose menu bar sits above this and
+    carries its own inset (see `menu_style()`); giving both one would draw a
+    colored line *between* the menu bar and the content rather than a border
+    around them. A dialog has nothing above it and takes the default.
+
+    The stylesheet goes on `frame.window()`, which is the frame itself for a
+    dialog and the `QMainWindow` for the central widget — the main window
+    needs the rule on itself regardless, since the menu bar's margin exposes
+    the window's own background rather than the frame's.
+
+    At `WINDOW_BORDER_WIDTH` 0 this is the layout it replaced, with one extra
+    widget in it.
+    """
+    frame.setObjectName("windowFrame")
+    frame.window().setStyleSheet(window_border_style())
+
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(
+        WINDOW_BORDER_WIDTH, top, WINDOW_BORDER_WIDTH, WINDOW_BORDER_WIDTH
+    )
+    layout.setSpacing(0)
+
+    body = QWidget()
+    body.setObjectName("windowBody")
+    layout.addWidget(body)
+    return body
 
 
 def apply_scrollbars(area) -> None:

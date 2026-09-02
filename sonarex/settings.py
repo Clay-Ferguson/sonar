@@ -48,6 +48,7 @@ from .style import (
     SECONDARY_BUTTON_BG,
     action_button,
     action_button_size,
+    bordered_body,
     apply_scrollbars,
     enlarge_checkbox,
     mono_font,
@@ -126,7 +127,9 @@ class SettingsDialog(QDialog):
 
         settings, error = load_settings()
 
-        self._layout = QVBoxLayout(self)
+        # The same colored border the main window carries, so a dialog does
+        # not read as a differently-made window.
+        self._layout = QVBoxLayout(bordered_body(self))
         # The layout's own spacing is the tight one, since it is what falls
         # between a label and the field it names; the wider gap between
         # sections is added explicitly, in `_begin_section`.
