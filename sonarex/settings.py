@@ -33,8 +33,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from windowchrome import bordered_body
-
 from . import APP_NAME
 from .archive import MAX_DEPTH
 from .config import (
@@ -128,9 +126,7 @@ class SettingsDialog(QDialog):
 
         settings, error = load_settings()
 
-        # The same colored border the main window carries, so a dialog does
-        # not read as a differently-made window.
-        self._layout = QVBoxLayout(bordered_body(self))
+        self._layout = QVBoxLayout(self)
         # The layout's own spacing is the tight one, since it is what falls
         # between a label and the field it names; the wider gap between
         # sections is added explicitly, in `_begin_section`.

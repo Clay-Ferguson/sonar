@@ -29,8 +29,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from windowchrome import bordered_body
-
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
 from .config import search_depth
@@ -137,12 +135,8 @@ class MainWindow(QMainWindow):
         # under the title bar, or hands it to the desktop's global menu where
         # there is one. Everything else lives on a plain central widget, which
         # is what the layout below fills.
-        # No top inset: the menu bar above carries its own, and two would draw
-        # a colored line between the menu bar and the content instead of a
-        # border around them. See `bordered_body()`.
-        frame = QWidget()
-        self.setCentralWidget(frame)
-        central = bordered_body(frame, top=0)
+        central = QWidget()
+        self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
         # The two rows are separate layouts, so their labels are pinned to a

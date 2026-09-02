@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QStyle,
 )
 
-from windowchrome import ChromeTheme, body_window_color, menu_bar_style
+from windowchrome import ChromeTheme, body_window_color
 
 from . import UI_POINT_SIZE
 
@@ -64,18 +64,15 @@ MATCH_CURRENT_BG = "#ff9e3d"
 # search already found, they do not start one.
 NAV_BUTTON_BG = "#41648c"
 
-# The window chrome: the title bar and the border painted just inside it, both
-# of which `windowchrome` owns — see `../windowchrome/README.md` for why the
-# title bar is reachable at all, and why the border has to be painted rather
-# than asked for.
+# The window's title bar, and with it the thin frame the decoration draws down
+# the sides and along the bottom. `windowchrome` owns both — see
+# `../windowchrome/README.md` for why they are reachable at all (Wayland only,
+# by repurposing three palette roles) and why their *size* is not.
 #
 # The library ships neutral defaults and this is Sonar's override of them. The
 # blue is seeded from the desktop's headerbar colors so the app sits in with
-# everything else rather than announcing itself; the border width is what makes
-# the decoration's own 3px read as one thicker frame with it. Set
-# `border_width` to 0 and the window lays out exactly as it did before the
-# border existed.
-SONAREX_THEME = ChromeTheme(title_bg="#1369da", border_width=4)
+# everything else rather than announcing itself.
+SONAREX_THEME = ChromeTheme(title_bg="#1369da")
 
 # The Open button is tinted with the selection color instead of a constant of
 # its own: it acts on the row highlighted in the results list, and sharing that
@@ -374,10 +371,6 @@ def menu_style() -> str:
     or a menu would highlight nothing under the pointer. It is written in
     `palette()` terms rather than pinned colors so it still follows the
     desktop theme, the way the unstyled menu did.
-
-    `windowchrome.menu_bar_style()` is concatenated on the end: it is the
-    `QMenuBar` rule that insets the bar inside the window border, and it lives
-    there because the margin it sets has to agree with the border's width.
     """
     return f"""
         QMenuBar::item {{
@@ -394,7 +387,7 @@ def menu_style() -> str:
             background: palette(highlight);
             color: palette(highlighted-text);
         }}
-    """ + menu_bar_style()
+    """
 
 
 def apply_scrollbars(area) -> None:

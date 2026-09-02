@@ -20,13 +20,18 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from windowchrome import bordered_body
-
 from .style import action_button
 
 # Wide enough that no bullet wraps at the default font size — the list reads
 # as one item per line, which is most of what makes it scannable.
 MIN_WIDTH = 520
+
+# The word-boundary example, named rather than written inline where it is used.
+# It has to be: a backslash inside an f-string's *expression* is a syntax error
+# before Python 3.12 (PEP 701 lifted the restriction), and this package
+# declares `requires-python = ">=3.11"`. Interpolating the name instead keeps
+# the backslash out of the braces and the line legal on both.
+WORD_BOUNDARY_EXAMPLE = r"\bABC\b"
 
 
 def _mono(text: str) -> str:
@@ -64,7 +69,7 @@ HELP_HTML = (
     + _section(
         "Regex Match Tips",
         [
-            f"Whole word ABC: {_mono(r'\bABC\b')}",
+            f"Whole word ABC: {_mono(WORD_BOUNDARY_EXAMPLE)}",
             f"From 0 up to 10 characters: {_mono('.{0,10}')}",
             f"Any string of chars: {_mono('.*')}",
         ],
@@ -102,7 +107,7 @@ class HelpDialog(QDialog):
         buttons.addStretch(1)
         buttons.addWidget(close)
 
-        layout = QVBoxLayout(bordered_body(self))
+        layout = QVBoxLayout(self)
         layout.addWidget(body)
         layout.addStretch(1)
         layout.addLayout(buttons)
