@@ -8,9 +8,16 @@ package, which is what keeps it at the bottom of the import graph.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize
+from PyQt6.QtCore import QEvent, QObject, QSize
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette
-from PyQt6.QtWidgets import QApplication, QCheckBox, QProxyStyle, QPushButton, QStyle
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QProxyStyle,
+    QPushButton,
+    QStyle,
+    QWidget,
+)
 
 from . import UI_POINT_SIZE
 
@@ -55,6 +62,25 @@ MATCH_CURRENT_BG = "#ff9e3d"
 # green Search button so the two do not compete: these step through what a
 # search already found, they do not start one.
 NAV_BUTTON_BG = "#41648c"
+
+# The window's own title bar, on Wayland only — see `paint_title_bar()` for why
+# these are reachable at all. Seeded from the desktop's headerbar colors so the
+# app sits in with everything else rather than announcing itself.
+TITLEBAR_BG = "#1369da"
+TITLEBAR_FG = "#ffffff"
+
+# The same bar when the window is not focused. The decoration takes the
+# inactive *text* from the palette but not the inactive background, so only the
+# foreground is dimmed here — matching a desktop that fades the title rather
+# than the bar.
+TITLEBAR_FG_INACTIVE = "#8fa1b8"
+
+# The decoration plugin that reads the two colors above. Qt ships two on
+# Linux/Wayland and picks `adwaita` by default; `adwaita` has its grays
+# compiled in and links no QPalette symbol at all, so nothing in this app can
+# reach it. Verified against the shipped plugins (Qt 6.11) — see
+# `paint_title_bar()`.
+WAYLAND_DECORATION = "bradient"
 
 # The Open button is tinted with the selection color instead of a constant of
 # its own: it acts on the row highlighted in the results list, and sharing that
@@ -417,6 +443,140 @@ def tune_palette(app: QApplication) -> None:
     # now read as raised components, which is the point of the change.
     app.setPalette(palette)
 
+
+# What the window body should be painted with, captured by `paint_title_bar()`
+# before it repurposes those roles for the decoration. Empty when the title bar
+# was left alone, which is what makes `apply_body_palette()` a no-op off
+# Wayland.
+_BODY_ROLES: dict[QPalette.ColorGroup, dict[QPalette.ColorRole, QColor]] = {}
+
+# The three (group, role) pairs `QWaylandBradientDecoration::paint()` reads.
+# Taken from the shipped plugin rather than from documentation: disassembling
+# it shows exactly three calls to QPalette::brush, with these arguments.
+_TITLEBAR_ROLES = (
+    (QPalette.ColorGroup.Active, QPalette.ColorRole.Window),
+    (QPalette.ColorGroup.Active, QPalette.ColorRole.WindowText),
+    (QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText),
+)
+
+
+def paint_title_bar(app: QApplication) -> None:
+    """Color the window's title bar, by way of the application palette.
+
+    On Wayland, GNOME implements no server-side decorations, so the title bar
+    is drawn *by Qt, inside this process* — which is the only reason it can be
+    colored at all. Which decorator runs is chosen by `QT_WAYLAND_DECORATION`,
+    set in `__main__` before the QApplication exists, because the platform
+    plugin reads it during that constructor.
+
+    Qt ships two decorators and defaults to `adwaita`, whose grays are
+    compiled in: it links no QPalette symbol at all, so nothing here can move
+    it. `bradient` paints from the application palette instead, and re-reads it
+    on every repaint rather than caching it at construction.
+
+    It reads `Window` and `WindowText` — the app's own surface and text roles,
+    not roles of its own. So coloring the bar means repurposing them
+    application-wide, and `apply_body_palette()` is what hands them back to
+    every window that is not the title bar. A window that forgets that call
+    comes out wearing the title bar's colors, which is loud but not broken;
+    `QMessageBox` is deliberately left that way, being transient and few.
+
+    A no-op off Wayland, where the platform draws the title bar and neither
+    the palette nor the decorator has anything to say about it.
+    """
+    if app.platformName() != "wayland":
+        return
+
+    palette = app.palette()
+    for group, role in _TITLEBAR_ROLES:
+        _BODY_ROLES.setdefault(group, {})[role] = palette.color(group, role)
+
+    palette.setColor(
+        QPalette.ColorGroup.Active, QPalette.ColorRole.Window, QColor(TITLEBAR_BG)
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Active, QPalette.ColorRole.WindowText, QColor(TITLEBAR_FG)
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.WindowText,
+        QColor(TITLEBAR_FG_INACTIVE),
+    )
+    app.setPalette(palette)
+    # After the palette, so the filter's first widget already sees the roles
+    # it has to hand back. See `_BodyPaletteFilter` for why every widget needs
+    # visiting rather than just the windows.
+    app.installEventFilter(_BODY_FILTER)
+
+
+def apply_body_palette(widget: QWidget) -> None:
+    """Give `widget` back the surface and text colors the title bar took.
+
+    A no-op when the widget already has them — which is the common case, since
+    a palette set on a widget propagates to its children — and a no-op when
+    `paint_title_bar()` did not run, so this is safe to call on every widget
+    in the application, which is what `_BodyPaletteFilter` does.
+    """
+    if not _BODY_ROLES:
+        return
+
+    palette = widget.palette()
+    if all(
+        palette.color(group, role) == color
+        for group, roles in _BODY_ROLES.items()
+        for role, color in roles.items()
+    ):
+        return
+
+    for group, roles in _BODY_ROLES.items():
+        for role, color in roles.items():
+            palette.setColor(group, role, color)
+    widget.setPalette(palette)
+
+
+class _BodyPaletteFilter(QObject):
+    """Restores the body colors on every widget, as it is polished.
+
+    Palette inheritance alone is not enough, and the reason is worth knowing:
+    **giving a widget a stylesheet severs it.** `QStyleSheetStyle` resolves a
+    palette for a styled widget out of the *application* palette and assigns
+    it, so the widget stops inheriting from its parent and starts wearing the
+    title bar's colors — and everything below it inherits that in turn. This
+    app styles the menu bar, the splitter and every scroll bar, so that is not
+    an edge case. A window is severed too, by being a window: a dialog, a
+    popup menu or a `QMessageBox` resolves against the application palette
+    however it is parented.
+
+    `QEvent.Polish` is where this is caught. Every widget gets exactly one,
+    before it is first shown and after its constructor has set whatever
+    stylesheet it is going to set, so one pass per widget fixes both causes
+    with no bookkeeping. Filtering on the application means no call site has
+    to remember: the failure mode of remembering is a widget that comes out
+    navy, which is how the menu bar was found.
+
+    The type check is first and is an integer compare, which matters because
+    an application-wide filter sees every event in the process — including
+    the ones a search delivering tens of thousands of rows generates.
+    """
+
+    #: `StyleChange` as well as `Polish`, because one polish per widget is not
+    #: quite enough: a stylesheet set on an *ancestor* — this app styles the
+    #: splitter, which is the parent of both panes — repolishes the subtree
+    #: below it, re-deriving those palettes from the application's after their
+    #: own Polish has already been and gone. StyleChange is what that arrives
+    #: as. Nothing here sends one back: `setPalette` raises PaletteChange, so
+    #: the two cannot chase each other.
+    _TRIGGERS = frozenset({QEvent.Type.Polish, QEvent.Type.StyleChange})
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt)
+        if event.type() in self._TRIGGERS and isinstance(obj, QWidget):
+            apply_body_palette(obj)
+        return False
+
+
+# Kept alive at module scope: installing a filter does not take ownership, and
+# a collected filter is a dangling pointer in the application's event loop.
+_BODY_FILTER = _BodyPaletteFilter()
 
 def mono_font() -> QFont:
     """The system's fixed-width font at the app's point size.

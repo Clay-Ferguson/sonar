@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from . import APP_NAME, UI_POINT_SIZE
 from .config import ensure_config
 from .search import ugrep_available
-from .style import tune_palette
+from .style import WAYLAND_DECORATION, paint_title_bar, tune_palette
 from .window import MainWindow
 
 
@@ -55,6 +55,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Before the QApplication, because the Wayland platform plugin reads this
+    # during that constructor and never again. `setdefault` so an explicit
+    # value in the environment still wins — this is a default, not a policy.
+    # See `style.paint_title_bar()` for what it buys.
+    os.environ.setdefault("QT_WAYLAND_DECORATION", WAYLAND_DECORATION)
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     # applicationDisplayName is deliberately NOT set. Every platform backend
@@ -76,6 +82,7 @@ def main() -> int:
     app.setFont(font)
 
     tune_palette(app)
+    paint_title_bar(app)
 
     if not ugrep_available():
         QMessageBox.critical(

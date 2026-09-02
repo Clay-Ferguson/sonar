@@ -121,6 +121,8 @@ the query only ever comes from the window.
   Save), `SECONDARY_BUTTON_BG` for anything beside it (Cancel, Close, the
   folder-row `…`), `NAV_BUTTON_BG` for Prev/Next, `selection_button_bg()` for
   Open — so a new button picks a role rather than a hex value.
+  `paint_title_bar()`/`apply_body_palette()` also live here, and are the whole
+  of the window title bar: see the entry below.
 - `sonarex/settings.py` — the Options ▸ Settings dialog: one text area per pattern
   list (one pattern per line), a checkbox for Search Archives, a dropdown for
   how deep it goes, and a line edit for the Open command. A future setting is
@@ -207,6 +209,52 @@ the query only ever comes from the window.
   is ever added back, styling `::item` also takes the icon column out of Qt's
   hands and it will need a `QMenu::icon { left: … }` to sit clear of the
   label.
+
+- **The window title bar is colorable, but only through `QPalette`, and only
+  on Wayland.** GNOME implements no server-side decorations for Wayland
+  clients, so Qt draws the title bar itself, in-process — which is the only
+  reason it is reachable at all. `QT_WAYLAND_DECORATION` picks the decorator,
+  and it is read inside the `QApplication` constructor, so `__main__` sets it
+  before that line and nowhere else. Qt ships two and defaults to `adwaita`,
+  which has its grays compiled in: verified against the shipped 6.11 plugin,
+  `libadwaita.so` links **no `QPalette` symbol at all**, so no stylesheet and
+  no palette can move it. `bradient` paints from the application palette, and
+  disassembling its `paint()` shows exactly three `QPalette::brush` calls —
+  `(Active, Window)`, `(Active, WindowText)`, `(Disabled, WindowText)` — re-read
+  on every repaint rather than cached at construction. An unknown value falls
+  back to `adwaita` silently rather than failing.
+
+  The catch is that those are the app's *own* surface and text roles, not roles
+  of the decoration's. So `paint_title_bar()` repurposes them application-wide
+  and `_BodyPaletteFilter` — an application event filter it installs — hands
+  them back to every widget as that widget is polished. Both are no-ops off
+  Wayland, where the platform draws the title bar and the palette has no say.
+
+- **Giving a widget a stylesheet severs its palette inheritance.**
+  `QStyleSheetStyle` resolves a palette for a styled widget out of the
+  *application* palette and assigns it, so it stops inheriting from its parent
+  — and everything under it inherits the severed one instead. This is why the
+  body colors cannot simply be set on `MainWindow`: the menu bar, the splitter
+  and every scroll bar are styled, and setting the palette on the window alone
+  left the menu bar wearing the title bar's color. Measured: 22 widgets leaked,
+  against 0 with the filter. A window is severed too, by being a window — a
+  dialog, a popup menu or a `QMessageBox` resolves against the application
+  palette however it is parented.
+
+  The filter therefore acts on `Polish` **and** `StyleChange`. Polish alone is
+  one pass per widget and misses the subtree below a later-styled ancestor —
+  the splitter styles itself after both panes have been polished, and the
+  repolish that follows arrives as StyleChange. There is no loop between them:
+  `setPalette` raises `PaletteChange`, which is not a trigger.
+
+  The symptom to recognise, since it is what found this: a widget wearing the
+  title bar color **only while the window has focus**. `paint_title_bar()`
+  moves the `Active` group and leaves `Inactive` alone, so anything leaking
+  goes back to the theme's gray the moment the window is dragged or defocused.
+
+  The way to check this without pixels: `/proc/self/maps` says which decoration
+  `.so` is actually mapped, and `nm -DC` on the two plugins says which one can
+  read a palette.
 
 - **With `-z`, an inclusion `-g` glob filters what is *inside* an archive, not
   which archives are opened.** `-g '*.zip'` alone returns nothing; `-g '*.tex'`
