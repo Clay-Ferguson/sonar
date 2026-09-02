@@ -20,7 +20,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .style import action_button, bordered_body
+from windowchrome import bordered_body
+
+from .style import action_button
 
 # Wide enough that no bullet wraps at the default font size — the list reads
 # as one item per line, which is most of what makes it scannable.

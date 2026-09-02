@@ -27,6 +27,11 @@ cap) died with that change; none of it should come back.
 sets `package = false`: the code runs straight out of the tree, so there is
 nothing to reinstall after an edit.
 
+One of the three dependencies, `windowchrome`, is a **sibling checkout** rather
+than a package from PyPI — `[tool.uv.sources]` points at `../windowchrome`,
+editable. It has to actually be there or `uv run` fails with an unresolved path
+dependency. See the chrome entry under "Things that will bite you".
+
 The folder is the **only** command-line argument, and it only prefills the
 folder row. No search ever runs automatically — a search needs a query, and
 the query only ever comes from the window.
@@ -121,8 +126,11 @@ the query only ever comes from the window.
   Save), `SECONDARY_BUTTON_BG` for anything beside it (Cancel, Close, the
   folder-row `…`), `NAV_BUTTON_BG` for Prev/Next, `selection_button_bg()` for
   Open — so a new button picks a role rather than a hex value.
-  `paint_title_bar()`/`apply_body_palette()` also live here, and are the whole
-  of the window title bar: see the entry below.
+  `SONAREX_THEME` also lives here: the app's override of `windowchrome`'s
+  neutral chrome defaults (the `#1369da` title bar and the 4px border), and the
+  one thing the library needs from this app. `menu_style()` ends by appending
+  `windowchrome.menu_bar_style()`, and `splitter_style()` derives its color
+  from `windowchrome.body_window_color()` — see the entry below.
 - `sonarex/settings.py` — the Options ▸ Settings dialog: one text area per pattern
   list (one pattern per line), a checkbox for Search Archives, a dropdown for
   how deep it goes, and a line edit for the Open command. A future setting is
@@ -210,92 +218,40 @@ the query only ever comes from the window.
   hands and it will need a `QMenu::icon { left: … }` to sit clear of the
   label.
 
-- **The window title bar is colorable, but only through `QPalette`, and only
-  on Wayland.** GNOME implements no server-side decorations for Wayland
-  clients, so Qt draws the title bar itself, in-process — which is the only
-  reason it is reachable at all. `QT_WAYLAND_DECORATION` picks the decorator,
-  and it is read inside the `QApplication` constructor, so `__main__` sets it
-  before that line and nowhere else. Qt ships two and defaults to `adwaita`,
-  which has its grays compiled in: verified against the shipped 6.11 plugin,
-  `libadwaita.so` links **no `QPalette` symbol at all**, so no stylesheet and
-  no palette can move it. `bradient` paints from the application palette, and
-  disassembling its `paint()` shows exactly three `QPalette::brush` calls —
-  `(Active, Window)`, `(Active, WindowText)`, `(Disabled, WindowText)` — re-read
-  on every repaint rather than cached at construction. An unknown value falls
-  back to `adwaita` silently rather than failing.
+- **The window chrome lives in `windowchrome`, not here — read
+  `../windowchrome/README.md` before touching any of it.** The colored title
+  bar and the 4px border are a sibling library (`[tool.uv.sources]` in
+  `pyproject.toml` points at `../windowchrome`, editable, so an edit there is
+  live here with no reinstall; the checkout has to *be* a sibling or `uv run`
+  fails outright). Its README carries the whole of what was measured: that the
+  bar is colorable only on Wayland and only by repurposing three application
+  palette roles; that `libadwaita.so` links no `QPalette` symbol at all while
+  `bradient` does, which is what `QT_WAYLAND_DECORATION` is choosing between;
+  that the decoration's `QMargins{3, 30, 3, 3}` are compiled-in constants, so
+  the border has to be painted *inside* the window rather than asked for; that
+  a stylesheet severs a widget's palette inheritance, which is why an
+  application event filter hands the body colors back (measured: 22 widgets
+  leaked without it, 0 with); and that `QMenuBar` ignores vertical margins and
+  applies horizontal ones to its height, which is the quirk insetting the bar
+  on all four sides.
 
-  The catch is that those are the app's *own* surface and text roles, not roles
-  of the decoration's. So `paint_title_bar()` repurposes them application-wide
-  and `_BodyPaletteFilter` — an application event filter it installs — hands
-  them back to every widget as that widget is polished. Both are no-ops off
-  Wayland, where the platform draws the title bar and the palette has no say.
+  What this app owes it, and what will break if it is forgotten:
+  `windowchrome.configure(SONAREX_THEME)` **before** `QApplication` and
+  `windowchrome.install(app)` **after** `tune_palette(app)` — both in
+  `__main__`, and both order-sensitive; `bordered_body()` in every top-level
+  window (`MainWindow` with `top=0`, `SettingsDialog`, `HelpDialog`), building
+  into the widget it *returns*; `menu_bar_style()` appended to `menu_style()`;
+  and `body_window_color()` rather than `QApplication.palette()` anywhere a
+  body color is derived. `splitter_style()` is the only reader of `Window` in
+  this app — it once read the title bar blue and lightened it, painting the
+  handle a brighter blue than the bar — while `scrollbar_style()` uses `Base`
+  and `selection_button_bg()` uses `Highlight`, neither of which the title bar
+  touches. `QMessageBox` deliberately calls none of it and keeps the title
+  bar's colors, being transient with no layout of ours to inset.
 
-- **Giving a widget a stylesheet severs its palette inheritance.**
-  `QStyleSheetStyle` resolves a palette for a styled widget out of the
-  *application* palette and assigns it, so it stops inheriting from its parent
-  — and everything under it inherits the severed one instead. This is why the
-  body colors cannot simply be set on `MainWindow`: the menu bar, the splitter
-  and every scroll bar are styled, and setting the palette on the window alone
-  left the menu bar wearing the title bar's color. Measured: 22 widgets leaked,
-  against 0 with the filter. A window is severed too, by being a window — a
-  dialog, a popup menu or a `QMessageBox` resolves against the application
-  palette however it is parented.
-
-  The filter therefore acts on `Polish` **and** `StyleChange`. Polish alone is
-  one pass per widget and misses the subtree below a later-styled ancestor —
-  the splitter styles itself after both panes have been polished, and the
-  repolish that follows arrives as StyleChange. There is no loop between them:
-  `setPalette` raises `PaletteChange`, which is not a trigger.
-
-- **The decoration's border and title bar height are compiled-in constants.**
-  `margins()` in the plugin returns `QMargins{3, 30, 3, 3}` — verified by
-  disassembly, the only branch in it being shadows-or-not — and takes no font,
-  palette or environment input. Measured at 10pt and 16pt: 30px both times,
-  against adwaita's 49. So there is no knob for either, and the app paints its
-  own border *inside* the window instead: `WINDOW_BORDER_WIDTH` and
-  `bordered_body()`, which every top-level window calls — `MainWindow`,
-  `SettingsDialog`, `HelpDialog` — so a dialog does not read as a
-  differently-made window. It returns the widget to build into, which is not
-  the one passed in: a border is a color the content must not sit on, so
-  `windowFrame` is painted in it and `windowBody` in the ordinary surface
-  color. Flush against the decoration's 3px and in the same color, so the two
-  read as one. `MainWindow` passes `top=0` because the menu bar above carries
-  its own inset. Set the constant to 0 and the layout is what it was.
-
-  `QWidget#windowFrame` matches a `QDialog` too — Qt type selectors match
-  subclasses, unlike CSS — which is why one rule covers all three. The check
-  that this actually paints, rather than merely lays out, is `grab()`: it
-  renders under `offscreen`, so a pixel a few px in from the edge can be
-  compared against `TITLEBAR_BG` directly.
-
-- **`QMenuBar` ignores `margin-top` and `margin-bottom`, and applies
-  `margin-left`/`margin-right` to its height as well.** Measured: a 20px
-  horizontal margin takes a 23px bar to 63px, while either vertical property
-  alone changes nothing. That is why `menu_style()` sets only the horizontal
-  pair — the quirk is what insets the bar on all four sides, which is the
-  effect wanted, and the vertical properties would be decoration on a rule Qt
-  discards. Note also that `QMainWindow` lays the bar out itself: the margin
-  never moves its geometry, only what it paints inside it, so the border color
-  showing through is the *window's* background, not the bar's. The bar's own
-  background has to be restated in that rule for the same reason.
-
-- **Anything deriving a color for the body must call `body_window_color()`,
-  not read `QApplication.palette()`.** That role now carries the title bar's
-  color, so a derived color comes out tinted — and, where it lightens or
-  darkens what it read, wrong twice over. `splitter_style()` did exactly this:
-  it read the title bar blue and lightened it, painting the handle a *brighter*
-  blue than the bar. It is the only reader of `Window` in the app;
-  `scrollbar_style()` uses `Base` and `selection_button_bg()` uses `Highlight`,
-  neither of which the title bar touches.
-
-  The symptom to recognise, since it is what found the filter above: a widget
-  wearing the title bar color **only while the window has focus**. `paint_title_bar()`
-  moves the `Active` group and leaves `Inactive` alone, so anything leaking
-  goes back to the theme's gray the moment the window is dragged or defocused.
-
-  The way to check this without pixels: `/proc/self/maps` says which decoration
-  `.so` is actually mapped, and `nm -DC` on the two plugins says which one can
-  read a palette.
+  The check that the border actually paints, rather than merely lays out, is
+  `grab()`: it renders under `offscreen`, so a pixel a few px in from the edge
+  can be compared against `SONAREX_THEME.title_bg` directly.
 
 - **With `-z`, an inclusion `-g` glob filters what is *inside* an archive, not
   which archives are opened.** `-g '*.zip'` alone returns nothing; `-g '*.tex'`

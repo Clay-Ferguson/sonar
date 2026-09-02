@@ -6,9 +6,19 @@ requires-python = ">=3.11"
 dependencies = [
     "PyQt6>=6.6",
     "PyYAML>=6.0",
+    "windowchrome",
 ]
+
+# `windowchrome` is not on PyPI and deliberately not on GitHub either: it is
+# developed beside this project and consumed from the sibling directory. The
+# checkout has to sit next to this one — `../windowchrome` — or `uv run` fails
+# with an unresolved path dependency. `editable` so an edit there is picked up
+# here with no reinstall, which is the whole point of developing them together.
+[tool.uv.sources]
+windowchrome = { path = "../windowchrome", editable = true }
 
 # Not an installable package: uv only builds the virtualenv from the
 # dependencies above, and start.sh runs the code straight out of the tree.
+# (That governs Sonar itself; the source above is a dependency and unaffected.)
 [tool.uv]
 package = false

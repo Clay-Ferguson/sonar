@@ -33,6 +33,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from windowchrome import bordered_body
+
 from . import APP_NAME
 from .archive import MAX_DEPTH
 from .config import (
@@ -48,7 +50,6 @@ from .style import (
     SECONDARY_BUTTON_BG,
     action_button,
     action_button_size,
-    bordered_body,
     apply_scrollbars,
     enlarge_checkbox,
     mono_font,

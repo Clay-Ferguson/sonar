@@ -6,12 +6,13 @@ import argparse
 import os
 import sys
 
+import windowchrome
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from . import APP_NAME, UI_POINT_SIZE
 from .config import ensure_config
 from .search import ugrep_available
-from .style import WAYLAND_DECORATION, paint_title_bar, tune_palette
+from .style import SONAREX_THEME, tune_palette
 from .window import MainWindow
 
 
@@ -55,11 +56,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Before the QApplication, because the Wayland platform plugin reads this
-    # during that constructor and never again. `setdefault` so an explicit
-    # value in the environment still wins — this is a default, not a policy.
-    # See `style.paint_title_bar()` for what it buys.
-    os.environ.setdefault("QT_WAYLAND_DECORATION", WAYLAND_DECORATION)
+    # Before the QApplication, and it has to be: `configure()` picks the
+    # Wayland decoration plugin through an environment variable that the
+    # platform plugin reads during that constructor and never again. See
+    # `../windowchrome/README.md`.
+    windowchrome.configure(SONAREX_THEME)
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -82,7 +83,10 @@ def main() -> int:
     app.setFont(font)
 
     tune_palette(app)
-    paint_title_bar(app)
+    # After `tune_palette`, not before: `install()` captures the body's colors
+    # at the moment it runs, and a palette changed afterwards is one it never
+    # saw.
+    windowchrome.install(app)
 
     if not ugrep_available():
         QMessageBox.critical(

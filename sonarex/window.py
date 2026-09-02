@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from windowchrome import bordered_body
+
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
 from .config import search_depth
@@ -52,7 +54,6 @@ from .style import (
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
     action_button,
-    bordered_body,
     apply_scrollbars,
     enlarge_checkbox,
     menu_style,
