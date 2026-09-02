@@ -247,6 +247,27 @@ the query only ever comes from the window.
   repolish that follows arrives as StyleChange. There is no loop between them:
   `setPalette` raises `PaletteChange`, which is not a trigger.
 
+- **The decoration's border and title bar height are compiled-in constants.**
+  `margins()` in the plugin returns `QMargins{3, 30, 3, 3}` — verified by
+  disassembly, the only branch in it being shadows-or-not — and takes no font,
+  palette or environment input. Measured at 10pt and 16pt: 30px both times,
+  against adwaita's 49. So there is no knob for either, and the app paints its
+  own border *inside* the window instead: `WINDOW_BORDER_WIDTH`,
+  `window_border_style()`, and the `windowFrame`/`windowBody` pair in
+  `MainWindow`. Flush against the decoration's 3px and in the same color, so
+  the two read as one. Set the constant to 0 and the layout is what it was.
+
+- **`QMenuBar` ignores `margin-top` and `margin-bottom`, and applies
+  `margin-left`/`margin-right` to its height as well.** Measured: a 20px
+  horizontal margin takes a 23px bar to 63px, while either vertical property
+  alone changes nothing. That is why `menu_style()` sets only the horizontal
+  pair — the quirk is what insets the bar on all four sides, which is the
+  effect wanted, and the vertical properties would be decoration on a rule Qt
+  discards. Note also that `QMainWindow` lays the bar out itself: the margin
+  never moves its geometry, only what it paints inside it, so the border color
+  showing through is the *window's* background, not the bar's. The bar's own
+  background has to be restated in that rule for the same reason.
+
 - **Anything deriving a color for the body must call `body_window_color()`,
   not read `QApplication.palette()`.** That role now carries the title bar's
   color, so a derived color comes out tinted — and, where it lightens or

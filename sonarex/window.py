@@ -51,6 +51,7 @@ from .style import (
     PRIMARY_BUTTON_BG,
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
+    WINDOW_BORDER_WIDTH,
     action_button,
     apply_scrollbars,
     enlarge_checkbox,
@@ -58,6 +59,7 @@ from .style import (
     mono_font,
     selection_button_bg,
     splitter_style,
+    window_border_style,
 )
 from .viewer import cleanup_temp_files, is_pdf, open_in_editor, read_for_preview
 
@@ -135,8 +137,26 @@ class MainWindow(QMainWindow):
         # under the title bar, or hands it to the desktop's global menu where
         # there is one. Everything else lives on a plain central widget, which
         # is what the layout below fills.
+        # Two widgets rather than one, so the window can carry a colored border
+        # the decoration will not: `frame` is the border, `central` is the
+        # surface the content actually sits on. The top margin is 0 because the
+        # menu bar above supplies its own (see `menu_style()`) — giving both a
+        # margin would draw a colored line *between* the two rather than a
+        # border around them. At WINDOW_BORDER_WIDTH 0 this is the old layout
+        # with one extra widget in it.
+        self.setStyleSheet(window_border_style())
+        frame = QWidget()
+        frame.setObjectName("windowFrame")
+        self.setCentralWidget(frame)
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(
+            WINDOW_BORDER_WIDTH, 0, WINDOW_BORDER_WIDTH, WINDOW_BORDER_WIDTH
+        )
+        frame_layout.setSpacing(0)
+
         central = QWidget()
-        self.setCentralWidget(central)
+        central.setObjectName("windowBody")
+        frame_layout.addWidget(central)
         layout = QVBoxLayout(central)
 
         # The two rows are separate layouts, so their labels are pinned to a

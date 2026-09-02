@@ -82,6 +82,14 @@ TITLEBAR_FG_INACTIVE = "#8fa1b8"
 # `paint_title_bar()`.
 WAYLAND_DECORATION = "bradient"
 
+# The colored inset painted just inside the decoration's own border, in the
+# same color and flush against it, so the two read as one thicker frame. This
+# exists because the decoration's border cannot be widened: `margins()` in the
+# plugin returns a compiled-in `QMargins{3, 30, 3, 3}` with no input of any
+# kind, so 3px and a 30px title bar are all it will ever give. Set to 0 and the
+# window lays out exactly as it did before the border existed.
+WINDOW_BORDER_WIDTH = 4
+
 # The Open button is tinted with the selection color instead of a constant of
 # its own: it acts on the row highlighted in the results list, and sharing that
 # color is what says so. Read from the palette rather than pinned to Yaru's
@@ -380,6 +388,19 @@ def menu_style() -> str:
     `palette()` terms rather than pinned colors so it still follows the
     desktop theme, the way the unstyled menu did.
     """
+    # The horizontal margin is what insets the bar from the window's edges so
+    # the border color shows around it. Only the horizontal one: measured,
+    # `QMenuBar` ignores `margin-top` and `margin-bottom` outright, and applies
+    # the left/right value to its *height* as well — a 20px horizontal margin
+    # takes the bar from 23px to 63px. That quirk is doing useful work here, so
+    # it is left alone rather than fought: it is what puts the border above and
+    # below the bar too, giving one even inset on all four sides. Setting the
+    # two vertical properties as well looks tidier and changes nothing.
+    #
+    # The background is restated rather than left to the palette because the
+    # margin exposes what is behind the bar: a bar that inherited a transparent
+    # background would let the border color through the bar itself as well.
+    body = body_window_color().name()
     return f"""
         QMenuBar::item {{
             padding: {MENU_BAR_ITEM_PADDING};
@@ -395,6 +416,31 @@ def menu_style() -> str:
             background: palette(highlight);
             color: palette(highlighted-text);
         }}
+        QMenuBar {{
+            margin-left: {WINDOW_BORDER_WIDTH}px;
+            margin-right: {WINDOW_BORDER_WIDTH}px;
+            background: {body};
+        }}
+    """
+
+
+def window_border_style() -> str:
+    """Qt stylesheet painting `WINDOW_BORDER_WIDTH` of border inside the window.
+
+    Three rules, and each one covers a different part of the same frame: the
+    `QMainWindow` itself is what shows through the margin `menu_style()` puts
+    around the menu bar, `#windowFrame` is the strip down the sides and along
+    the bottom, and `#windowBody` puts the ordinary surface color back under
+    the content so the blue is a border rather than a backdrop.
+
+    Object-name selectors rather than `QWidget`, which would match every
+    widget in the window: a stylesheet set on a window is consulted for all of
+    its descendants, so an unqualified rule here would paint the whole app.
+    """
+    return f"""
+        QMainWindow {{ background: {TITLEBAR_BG}; }}
+        QWidget#windowFrame {{ background: {TITLEBAR_BG}; }}
+        QWidget#windowBody {{ background: {body_window_color().name()}; }}
     """
 
 
