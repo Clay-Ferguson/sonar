@@ -247,8 +247,17 @@ the query only ever comes from the window.
   repolish that follows arrives as StyleChange. There is no loop between them:
   `setPalette` raises `PaletteChange`, which is not a trigger.
 
-  The symptom to recognise, since it is what found this: a widget wearing the
-  title bar color **only while the window has focus**. `paint_title_bar()`
+- **Anything deriving a color for the body must call `body_window_color()`,
+  not read `QApplication.palette()`.** That role now carries the title bar's
+  color, so a derived color comes out tinted — and, where it lightens or
+  darkens what it read, wrong twice over. `splitter_style()` did exactly this:
+  it read the title bar blue and lightened it, painting the handle a *brighter*
+  blue than the bar. It is the only reader of `Window` in the app;
+  `scrollbar_style()` uses `Base` and `selection_button_bg()` uses `Highlight`,
+  neither of which the title bar touches.
+
+  The symptom to recognise, since it is what found the filter above: a widget
+  wearing the title bar color **only while the window has focus**. `paint_title_bar()`
   moves the `Active` group and leaves `Inactive` alone, so anything leaking
   goes back to the theme's gray the moment the window is dragged or defocused.
 

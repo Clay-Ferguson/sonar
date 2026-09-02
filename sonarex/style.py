@@ -263,7 +263,7 @@ def splitter_style() -> str:
     the stylesheet paints the handle, but the splitter's own layout is what
     reserves the space and decides where a drag starts.
     """
-    window = QApplication.palette().color(QPalette.ColorRole.Window)
+    window = body_window_color()
     handle = (
         window.lighter(SPLITTER_CONTRAST)
         if window.lightness() < 128
@@ -507,6 +507,26 @@ def paint_title_bar(app: QApplication) -> None:
     # it has to hand back. See `_BodyPaletteFilter` for why every widget needs
     # visiting rather than just the windows.
     app.installEventFilter(_BODY_FILTER)
+
+
+def body_window_color() -> QColor:
+    """The surface color the window *body* is painted with.
+
+    Not `QApplication.palette()`'s `Window`: on Wayland that role carries the
+    title bar's color instead — see `paint_title_bar()`. Anything deriving a
+    color for the body has to come here, or it is tinted with the title bar
+    and, where it lightens or darkens what it read, wrong twice over. That is
+    exactly what happened to the splitter handle: it read the title bar blue
+    and then lightened it, arriving at a brighter blue than the bar itself.
+
+    Falls through to the application palette when the title bar was left
+    alone, which is the same color it would have read anyway.
+    """
+    body = _BODY_ROLES.get(QPalette.ColorGroup.Active, {})
+    return body.get(
+        QPalette.ColorRole.Window,
+        QApplication.palette().color(QPalette.ColorRole.Window),
+    )
 
 
 def apply_body_palette(widget: QWidget) -> None:
