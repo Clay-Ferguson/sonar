@@ -9,7 +9,7 @@ package, which is what keeps it at the bottom of the import graph.
 from __future__ import annotations
 
 from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette
+from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -93,6 +93,12 @@ ACTION_BUTTON_TEXT = "Search"
 # The control bar under the preview is secondary to the header, so its
 # button is padded more modestly than the Search button.
 CONTROL_BAR_PADDING = "5px 16px"
+
+# How much of an icon button's side is *not* icon, in pixels: its border, and
+# the ring of background that keeps the glyph from touching it. The rest is
+# given to the icon, so the button reads as an icon with a frame around it
+# rather than a small mark adrift in a large square.
+ICON_BUTTON_INSET = 8
 
 # The gutter down the left of the preview pane, in pixels: how far the file
 # text and the Open button under it are held off the divider. It is a gutter
@@ -180,18 +186,27 @@ def selection_button_bg() -> str:
     return color.name()
 
 
-def action_button_size() -> QSize:
-    """The size of the header's Search button, for other buttons to match.
+def _text_button_size(padding: str) -> QSize:
+    """The size a styled button carrying `ACTION_BUTTON_TEXT` would take.
 
-    Measured off a throwaway button carrying the same text, style and padding,
-    rather than hardcoded: the result then follows the point size, the
-    desktop font and `ACTION_BUTTON_PADDING` instead of drifting out of step
-    with them. The probe is never shown and never parented, so it is destroyed
-    with the last reference to it here.
+    Measured off a throwaway button carrying that text, style and padding,
+    rather than hardcoded: the result then follows the point size, the desktop
+    font and the padding instead of drifting out of step with them. The probe
+    is never shown and never parented, so it is destroyed with the last
+    reference to it here.
+
+    The background is left at the primary green because it changes nothing
+    about the measurement — every `action_button_style()` draws the same 1px
+    border and the same box, whatever color fills it.
     """
     probe = QPushButton(ACTION_BUTTON_TEXT)
-    probe.setStyleSheet(action_button_style(PRIMARY_BUTTON_BG, ACTION_BUTTON_PADDING))
+    probe.setStyleSheet(action_button_style(PRIMARY_BUTTON_BG, padding))
     return probe.sizeHint()
+
+
+def action_button_size() -> QSize:
+    """The size of the header's Search button, for other buttons to match."""
+    return _text_button_size(ACTION_BUTTON_PADDING)
 
 
 def match_action_button(button: QPushButton) -> None:
@@ -238,6 +253,54 @@ def action_button(
     button.setAutoDefault(False)
     if uniform:
         match_action_button(button)
+    return button
+
+
+def _icon_size(icon: QIcon, limit: int) -> QSize:
+    """How large to draw `icon` inside a box `limit` pixels square.
+
+    The limit itself, unless the icon set has nothing that big. A themed icon
+    is a set of fixed-size pixmaps and QIcon will answer any size asked of it
+    by scaling the nearest one: scaling *down* from a larger pixmap is what
+    fills the button and costs nothing visible, while scaling *up* past the
+    largest pixmap the theme ships is a soft smear. So an icon whose sizes
+    stop below the limit is drawn at its own largest instead.
+
+    An icon reporting no sizes at all is SVG-backed, where every size is exact
+    and there is no ceiling to respect; it gets the limit.
+    """
+    sizes = icon.availableSizes()
+    if not sizes:
+        return QSize(limit, limit)
+    side = min(limit, max(size.width() for size in sizes))
+    return QSize(side, side)
+
+
+def icon_button(
+    pixmap: QStyle.StandardPixmap,
+    background: str = SECONDARY_BUTTON_BG,
+    padding: str = ACTION_BUTTON_PADDING,
+) -> QPushButton:
+    """A square, icon-only button that stands as tall as the text ones beside it.
+
+    `padding` is the padding of those *neighbors* — `CONTROL_BAR_PADDING` for
+    the row under the preview — and is measured rather than applied: it is
+    what makes the heights match, while putting 16px of it inside a square
+    holding one glyph would only squeeze the glyph out. The button is then
+    fixed to that height in both directions, which is what makes it a square.
+
+    The icon is Qt's, drawn from the desktop's own theme, so the folder on the
+    button is the folder the file manager itself uses. `_icon_size` decides
+    how big it is drawn.
+    """
+    side = _text_button_size(padding).height()
+    button = QPushButton()
+    button.setStyleSheet(action_button_style(background))
+    button.setAutoDefault(False)
+    button.setFixedSize(side, side)
+    icon = QApplication.style().standardIcon(pixmap)
+    button.setIcon(icon)
+    button.setIconSize(_icon_size(icon, side - ICON_BUTTON_INSET))
     return button
 
 

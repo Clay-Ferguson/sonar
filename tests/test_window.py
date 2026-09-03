@@ -17,7 +17,13 @@ from sonarex import viewer
 from sonarex.archive import Hit
 from sonarex.search import build_argv
 from sonarex.viewer import read_for_preview
-from sonarex.window import HIT_ROLE, OPEN_TIP, OPEN_TIP_ARCHIVED
+from sonarex.window import (
+    FOLDER_TIP,
+    FOLDER_TIP_ARCHIVED,
+    HIT_ROLE,
+    OPEN_TIP,
+    OPEN_TIP_ARCHIVED,
+)
 
 from conftest import (
     MEMBERS,
@@ -341,6 +347,102 @@ def test_the_open_tooltip_follows_the_selection(conf, tree, search):
     assert window.open_button.toolTip() == OPEN_TIP_ARCHIVED
     select(window, "loose.txt")
     assert window.open_button.toolTip() == OPEN_TIP
+
+
+# -- the folder button -----------------------------------------------------
+
+
+# What the system opener is swapped for while a folder test runs. Absolute, so
+# `_start_detached` has no PATH lookup to do and the argv recorded below is
+# exactly the one the code built; and not the `/bin/true` the `conf` fixture
+# gives the Open command, so the two buttons stay told apart in the recording.
+NOOP_OPENER = "/bin/echo"
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """Record what is handed to the system opener instead of running it.
+
+    The folder button's real command is `xdg-open`, and a test that let it run
+    would open a file manager window on whoever's desktop is running the
+    suite.
+
+    The patch lands on `subprocess.Popen` itself, which is the module every
+    other spawn in the app shares — so anything that is not the opener is
+    passed straight through to the real one. Without that, selecting a row
+    would take the preview's own extraction down with it.
+    """
+    calls = []
+    real = viewer.subprocess.Popen
+
+    def spy(argv, **kwargs):
+        if argv[:1] == [NOOP_OPENER]:
+            calls.append(argv)
+            return None
+        return real(argv, **kwargs)
+
+    monkeypatch.setattr(viewer, "SYSTEM_OPEN_COMMAND", NOOP_OPENER)
+    monkeypatch.setattr(viewer.subprocess, "Popen", spy)
+    return calls
+
+
+def test_the_folder_button_opens_the_rows_folder(conf, tree, search, spawned):
+    conf(archives=False)
+    window = search(tree, "needle")
+    select(window, "loose.txt")
+
+    window.folder_button.click()
+
+    assert spawned == [[NOOP_OPENER, str(tree)]]
+
+
+def test_the_folder_button_opens_an_archives_own_folder(conf, tree, search, spawned):
+    """The folder for a member is the one holding the archive.
+
+    Not the temp directory an extracted copy goes to — and nothing is
+    extracted at all, which is what the untouched `_temp_root` says.
+    """
+    conf(archives=True)
+    window = search(tree, "needle")
+    select(window, "docs.zip → doc/one.txt")
+
+    window.folder_button.click()
+
+    assert spawned == [[NOOP_OPENER, str(tree)]]
+    assert viewer._temp_root is None
+
+
+def test_the_folder_button_follows_the_selection(conf, tree, search):
+    conf(archives=True)
+    window = search(tree, "needle")
+    assert not window.folder_button.isEnabled()
+
+    select(window, "docs.zip → doc/one.txt")
+    assert window.folder_button.isEnabled()
+    assert window.folder_button.toolTip() == FOLDER_TIP_ARCHIVED
+    select(window, "loose.txt")
+    assert window.folder_button.toolTip() == FOLDER_TIP
+
+
+def test_the_folder_button_is_a_square_the_height_of_the_row(conf, tree, search):
+    conf(archives=False)
+    window = search(tree, "needle")
+
+    size = window.folder_button.size()
+    assert size.width() == size.height()
+    assert size.height() == window.open_button.sizeHint().height()
+
+
+def test_the_folder_is_reported_when_it_is_gone(tmp_path, spawned):
+    folder = tmp_path / "vanished"
+    folder.mkdir()
+    hit = Hit(str(folder / "file.txt"))
+    folder.rmdir()
+
+    error = viewer.open_folder(hit)
+
+    assert error.startswith("Cannot open — the folder no longer exists")
+    assert spawned == []
 
 
 # -- notices ---------------------------------------------------------------

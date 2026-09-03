@@ -26,6 +26,7 @@ detail, see [CONFIG.md](CONFIG.md).
 - [Stepping through matches](#stepping-through-matches)
 - [PDFs](#pdfs)
 - [Opening a file in your editor](#opening-a-file-in-your-editor)
+- [Opening the folder a file is in](#opening-the-folder-a-file-is-in)
 - [Searching inside archives](#searching-inside-archives)
 - [The Options menu](#the-options-menu)
 - [The Settings dialog](#the-settings-dialog)
@@ -108,8 +109,8 @@ alone.
   folder chooser.
 - **Results list** (left) — one row per matching file, newest first.
 - **Preview pane** (right) — the selected file, read-only.
-- **Control bar** (under the preview) — **Open**, **Prev**, **Next**, the
-  match counter, and the **Word Wrap** checkbox.
+- **Control bar** (under the preview) — **Open**, the folder button, **Prev**,
+  **Next**, the match counter, and the **Word Wrap** checkbox.
 - **Title bar** — this is where Sonar reports on the search. There is no
   status bar at the bottom of the window; the title says `Sonar — Searching…
   42 files` while a search runs and `Sonar — 137 files in /home/you/projects`
@@ -325,6 +326,28 @@ tells you in a dialog naming the command, so you know what to fix.
 
 Sonar refuses to Open a non-text file out of an archive rather than handing
 your editor a mangled copy.
+
+---
+
+## Opening the folder a file is in
+
+The square folder button, immediately to the right of **Open**, opens the
+*folder* holding the selected file in your desktop's file manager — Nautilus
+on stock Ubuntu, whatever else you have registered otherwise. Use it when you
+want to get at the file's neighbours, rename it, or drag it somewhere: Sonar
+finds the file, the file manager does everything else with it.
+
+Like **Open**, it is dim until you select something, and the file manager is
+started independently of Sonar, so it stays open after you close the search
+window.
+
+For a file **inside an archive** it opens the folder holding the *archive* —
+the archive is what is actually sitting there on disk, and the read-only copy
+Open would extract lives in a temporary directory there is no point showing
+you. The button's tooltip says which folder it will open before you click.
+
+There is nothing to configure. Folders go to `xdg-open`, the same way PDFs
+do, so the choice of file manager is your desktop's rather than Sonar's.
 
 ---
 
@@ -570,6 +593,7 @@ Prev and Next currently have no keyboard shortcut — use the buttons.
 | `Not a folder: …` | the Folder row does not name a directory |
 | a ugrep error message | your query was rejected — usually a broken regex |
 | `Could not run '…'` | the Open command could not be started |
+| `Cannot open — the folder no longer exists` | the file's folder was removed while Sonar had it listed |
 | `… could not be read` (in Settings) | your config file has a YAML error |
 
 ---

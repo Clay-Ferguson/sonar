@@ -175,7 +175,13 @@ the query only ever comes from the window.
   shared by that and by the window's choice of preview pane. A member has no
   path any editor can open, so `_temp_copy()` extracts it to a read-only file
   under a per-session `tempfile.mkdtemp()` and Open runs against that;
-  `cleanup_temp_files()` is what `closeEvent` calls to remove them.
+  `cleanup_temp_files()` is what `closeEvent` calls to remove them. Finally
+  `open_folder()`, behind the icon button beside Open: it sends
+  `containing_folder()` — the folder holding the file, or holding the
+  *archive* for a member, never the temp copy — to `SYSTEM_OPEN_COMMAND`,
+  which for a directory is the desktop's file manager. The spawn all three
+  share is `_start_detached()`, which resolves the program on PATH and starts
+  it in its own session so it outlives Sonar.
 
 ## Things that will bite you
 

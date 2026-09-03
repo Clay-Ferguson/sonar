@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -55,12 +56,19 @@ from .style import (
     action_button,
     apply_scrollbars,
     enlarge_checkbox,
+    icon_button,
     menu_style,
     mono_font,
     selection_button_bg,
     splitter_style,
 )
-from .viewer import cleanup_temp_files, is_pdf, open_in_editor, read_for_preview
+from .viewer import (
+    cleanup_temp_files,
+    is_pdf,
+    open_folder,
+    open_in_editor,
+    read_for_preview,
+)
 
 # The `Hit` a row stands for: an absolute path, plus a name inside it when the
 # result came out of an archive. The row's *text* is only the part below the
@@ -85,6 +93,12 @@ OPEN_TIP_ARCHIVED = (
     "Open a read-only copy extracted from the archive.\n"
     "Edits to it do not go back into the archive."
 )
+
+# The folder button's, which changes with the selection for the same reason
+# Open's does: for a hit inside an archive the folder that opens is the one
+# holding the archive, and that is worth saying before the click.
+FOLDER_TIP = "Show this file's folder in the file manager"
+FOLDER_TIP_ARCHIVED = "Show the folder holding the archive in the file manager"
 
 # Results/preview split, as a ratio of the window width. The preview needs the
 # room; the list only has to show a path.
@@ -243,6 +257,27 @@ class MainWindow(QMainWindow):
         self.open_button.setEnabled(False)
         self.open_button.clicked.connect(self._open_selected)
 
+        # Open aimed one level up, so it sits directly beside Open. An icon
+        # rather than a label because "Folder" beside "Open" would read as a
+        # second noun in a row of verbs — and because the desktop's own folder
+        # is the one glyph every file manager has already taught the user to
+        # recognise.
+        #
+        # The neutral gray rather than Open's selection tint, even though it
+        # acts on the same row: the tint is a blue, the themed folder is a
+        # blue, and the icon washed out against it. On a button whose whole
+        # label is a picture, contrast under the picture outranks the color
+        # coding — and secondary gray is a fair reading of it anyway, beside
+        # the Open it is a variation on.
+        self.folder_button = icon_button(
+            QStyle.StandardPixmap.SP_DirIcon,
+            SECONDARY_BUTTON_BG,
+            CONTROL_BAR_PADDING,
+        )
+        self.folder_button.setToolTip(FOLDER_TIP)
+        self.folder_button.setEnabled(False)
+        self.folder_button.clicked.connect(self._open_selected_folder)
+
         # Prev/Next step between individual matches rather than between lines:
         # the spans are exact, so a line carrying three hits is three stops.
         # Both wrap around, which is what makes them usable without also
@@ -266,6 +301,7 @@ class MainWindow(QMainWindow):
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(PANE_GAP, 0, 0, 0)
         control_bar.addWidget(self.open_button)
+        control_bar.addWidget(self.folder_button)
         control_bar.addWidget(self.prev_button)
         control_bar.addWidget(self.next_button)
         control_bar.addWidget(self.match_label)
@@ -568,9 +604,9 @@ class MainWindow(QMainWindow):
         self.results.blockSignals(False)
 
         self._match_count = self.results.count()
-        # Signals were blocked across the rebuild, so the button's state was
+        # Signals were blocked across the rebuild, so the buttons' state was
         # not refreshed by the clear; put it back in step with the list.
-        self.open_button.setEnabled(False)
+        self._enable_row_actions(False)
         if selected_hit:
             for row in range(self.results.count()):
                 if self.results.item(row).data(HIT_ROLE) == selected_hit:
@@ -626,6 +662,31 @@ class MainWindow(QMainWindow):
         if error:
             self._report_problem(error)
 
+    def _open_selected_folder(self) -> None:
+        """Show the selected file's folder in the desktop's file manager.
+
+        No depth argument, unlike Open: nothing is extracted, because the
+        folder wanted for a hit inside an archive is the one holding the
+        archive itself — see `viewer.containing_folder`.
+        """
+        item = self.results.currentItem()
+        if item is None:
+            return
+        error = open_folder(item.data(HIT_ROLE))
+        if error:
+            self._report_problem(error)
+
+    def _enable_row_actions(self, enabled: bool) -> None:
+        """Open and the folder button, which are live or dim together.
+
+        Both act on the current row and neither can do anything without one,
+        so they have a single answer between them; kept in one place so a
+        third such button cannot be added and then missed at one of the two
+        sites that flips them.
+        """
+        self.open_button.setEnabled(enabled)
+        self.folder_button.setEnabled(enabled)
+
     def _nav_button(self, text: str, tip: str) -> QPushButton:
         """One of the two match-stepping buttons, styled alike."""
         button = action_button(text, NAV_BUTTON_BG, CONTROL_BAR_PADDING)
@@ -643,10 +704,12 @@ class MainWindow(QMainWindow):
         Wired to the current *item* rather than to clicks, so walking the
         results with the arrow keys previews each file too.
         """
-        # Open acts on the current row, so it is live exactly when one exists.
-        self.open_button.setEnabled(current is not None)
+        # Both act on the current row, so they are live exactly when one
+        # exists.
+        self._enable_row_actions(current is not None)
         if current is None:
             self.open_button.setToolTip(OPEN_TIP)
+            self.folder_button.setToolTip(FOLDER_TIP)
             self._show_pane(False)
             self.preview.clear()
             # Clearing the pane has to clear what the pane was about, or Prev
@@ -657,6 +720,7 @@ class MainWindow(QMainWindow):
             return
         hit = current.data(HIT_ROLE)
         self.open_button.setToolTip(OPEN_TIP_ARCHIVED if hit.member else OPEN_TIP)
+        self.folder_button.setToolTip(FOLDER_TIP_ARCHIVED if hit.member else FOLDER_TIP)
 
         # A PDF is rendered rather than described — but only if it renders:
         # a failure comes back as a message, which the text pane then shows

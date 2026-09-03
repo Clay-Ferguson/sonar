@@ -11,10 +11,14 @@ moment of the click, so changing it in the settings dialog takes effect on
 the next Open rather than the next run. PDFs bypass that key entirely and go
 to the desktop's default application instead.
 
-Both take a `Hit` rather than a path, because with Search Archives on a
+`open_folder` is the same handoff aimed one level up — the folder the file
+sits in, given to the desktop's file manager.
+
+All three take a `Hit` rather than a path, because with Search Archives on a
 result can name a file inside a zip, which no editor and no `open()` can
 reach. Those go through `archive.extract` — to the pane directly for a
-preview, and to a temporary copy for Open.
+preview, and to a temporary copy for Open. `open_folder` needs neither: the
+folder it wants is the one holding the archive.
 """
 
 from __future__ import annotations
@@ -56,6 +60,9 @@ PDF_SUFFIX = ".pdf"
 # double-clicking it in a file manager would use. It is deliberately not a
 # config key: the point of it is that the *system* decides, and a second
 # configurable command would only give the user another one to get wrong.
+#
+# `open_folder` uses the same command for the same reason: what is registered
+# for a directory is the desktop's file manager.
 SYSTEM_OPEN_EXTENSIONS = {PDF_SUFFIX}
 SYSTEM_OPEN_COMMAND = "xdg-open"
 
@@ -305,6 +312,44 @@ def build_open_argv(command: str, path: str) -> list[str]:
     return parts + [path]
 
 
+def _start_detached(argv: list[str], subject: str, hint: str) -> str | None:
+    """Run `argv`, detached from Sonar. An error message, or None.
+
+    Shared by both buttons in the control bar, since "hand this to another
+    program and forget about it" is the whole of what each of them does once
+    it has decided what to hand over. `subject` is what was being opened, for
+    the message; `hint` is where the caller says what to do about it.
+
+    The program is checked on PATH first, so a missing one is reported as the
+    missing program it is instead of a bare OSError from the spawn.
+
+    Spawned with `start_new_session=True` and its streams discarded, so the
+    editor or the file manager is not a child that dies with Sonar and cannot
+    stall the GUI by filling a pipe nobody reads.
+    """
+    program = argv[0]
+    if not os.path.isabs(program):
+        resolved = shutil.which(program)
+        if resolved is None:
+            return f"Cannot open {subject}: '{program}' is not on PATH.{hint}"
+        argv[0] = resolved
+    elif not os.path.exists(program):
+        return f"Cannot open {subject}: {program} is not installed.{hint}"
+
+    try:
+        subprocess.Popen(
+            argv,
+            env=_child_env(),
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        return f"Could not open {subject}:\n{exc}"
+    return None
+
+
 def open_in_editor(hit: Hit, depth: int = 0) -> str | None:
     """Open `hit` with the configured command. An error message, or None.
 
@@ -328,12 +373,8 @@ def open_in_editor(hit: Hit, depth: int = 0) -> str | None:
     system opener there is nothing to fix in the dialog, so it says where the
     file was being sent instead.
 
-    The program is checked on PATH first, so a missing one is reported as the
-    missing program it is instead of a bare OSError from the spawn.
-
-    Spawned with `start_new_session=True` and its streams discarded, so the
-    editor is not a child that dies with Sonar and cannot stall the GUI by
-    filling a pipe nobody reads.
+    Which program is decided here; starting it is `_start_detached`'s, and so
+    is every way that can fail.
     """
     path = hit.path
     if not os.path.exists(path):
@@ -366,30 +407,41 @@ def open_in_editor(hit: Hit, depth: int = 0) -> str | None:
             f"{exc}{hint}"
         )
 
-    program = argv[0]
-    if not os.path.isabs(program):
-        resolved = shutil.which(program)
-        if resolved is None:
-            return (
-                f"Cannot open '{os.path.basename(path)}': "
-                f"'{program}' is not on PATH.{hint}"
-            )
-        argv[0] = resolved
-    elif not os.path.exists(program):
-        return (
-            f"Cannot open '{os.path.basename(path)}': "
-            f"{program} is not installed.{hint}"
-        )
+    return _start_detached(argv, f"'{os.path.basename(path)}'", hint)
 
-    try:
-        subprocess.Popen(
-            argv,
-            env=_child_env(),
-            start_new_session=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError as exc:
-        return f"Could not open '{os.path.basename(path)}':\n{exc}"
-    return None
+
+def containing_folder(hit: Hit) -> str:
+    """The folder to show for `hit`.
+
+    For a hit inside an archive that is the folder holding the *archive*, not
+    the temporary copy `open_in_editor` would have extracted: the copy lives
+    under /tmp and a window onto that directory tells the user nothing, while
+    the archive is the thing that is actually there to be found.
+
+    Absolute, because a relative result would be read against the file
+    manager's own working directory rather than Sonar's.
+    """
+    return os.path.dirname(os.path.abspath(hit.path))
+
+
+def open_folder(hit: Hit) -> str | None:
+    """Show the folder holding `hit` in the file manager. An error, or None.
+
+    The companion to `open_in_editor`: the same gesture aimed at the folder
+    instead of the file. There is no configured command for this one — a
+    directory goes to `SYSTEM_OPEN_COMMAND`, which is what puts it in front of
+    whatever file manager the desktop has registered (Nautilus, Dolphin, and
+    so on) rather than in front of a second thing the user has to configure.
+
+    An error is returned rather than raised for the same reason it is in
+    `open_in_editor`: this runs in a button handler, where a traceback would
+    take the window down.
+    """
+    folder = containing_folder(hit)
+    if not os.path.isdir(folder):
+        return f"Cannot open — the folder no longer exists:\n{folder}"
+    hint = (
+        f"\n\nFolders are opened with the system's file manager, "
+        f"through '{SYSTEM_OPEN_COMMAND}'."
+    )
+    return _start_detached([SYSTEM_OPEN_COMMAND, folder], f"'{folder}'", hint)
