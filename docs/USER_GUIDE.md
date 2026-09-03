@@ -231,7 +231,7 @@ search tool, not an editor. Use [**Open**](#opening-a-file-in-your-editor) when
 you want to change something.
 
 Every place your query matched is **highlighted in amber**, and the match you
-are currently parked on is highlighted in a hotter color so you can tell it
+are currently parked on is highlighted in a brighter yellow so you can tell it
 from the rest. The pane scrolls straight to the first match when a file opens,
 rather than leaving you at the top of a long file to hunt for it.
 

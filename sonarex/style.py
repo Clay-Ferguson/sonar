@@ -47,17 +47,17 @@ ACTION_BUTTON_PADDING = "8px 24px"
 
 # Match highlighting in the preview. Both halves are pinned rather than derived
 # from the palette, and they have to be set together: the background has to stay
-# recognisably "highlighter yellow" in either theme, so the text on top of it
+# recognisably a highlighter color in either theme, so the text on top of it
 # cannot inherit the theme's foreground — on a dark theme that is near-white and
 # would vanish against the amber.
-MATCH_BG = "#ffe066"
+MATCH_BG = "#ff9e3d"
 MATCH_FG = "#1a1a1a"
 
-# The one match Prev/Next is parked on. Warmer and deeper than MATCH_BG rather
-# than a different hue entirely: it has to read as "this one of those", not as
-# a second, unrelated kind of mark. MATCH_FG stays legible on it, which is why
-# the current match needs no foreground of its own.
-MATCH_CURRENT_BG = "#ff9e3d"
+# The one match Prev/Next is parked on. Brighter and lighter than MATCH_BG
+# rather than a different hue entirely: it has to read as "this one of those",
+# not as a second, unrelated kind of mark. MATCH_FG stays legible on it, which
+# is why the current match needs no foreground of its own.
+MATCH_CURRENT_BG = "#ffe066"
 
 # Prev/Next. A muted steel blue, sitting at the same low saturation as the
 # green Search button so the two do not compete: these step through what a
