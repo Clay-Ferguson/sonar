@@ -92,8 +92,8 @@ the query only ever comes from the window.
   the two rows, the splitter, the status label, and the end-of-search sort. It
   is a `QMainWindow` rather than a plain `QWidget` only so `menuBar()` exists —
   everything else lives on a central widget; `_build_menus()` is the whole menu
-  bar: a File menu with Exit on it, and an Options menu carrying Settings and
-  a Help submenu (Query Syntax, User Guide), labels only (these
+  bar: a File menu with Exit on it, and an Options menu carrying Settings,
+  Query Syntax and User Guide — three flat items, no submenu, labels only (these
   were square icon buttons in the query row until they became menu items). Also the Prev/Next walk: `_adopt_matches()`
   flattens the spans into reading order on `self._matches`, and
   `_go_to_match()` is the single place that moves `self._match_index`, marks

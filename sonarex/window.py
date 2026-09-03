@@ -332,20 +332,18 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(lambda: show_settings(self))
         options.addAction(settings_action)
 
-        # A submenu rather than one item: both documents are markdown files
-        # under docs/, shown in the same window, and the short one is no
-        # longer the only help there is.
-        help_menu = options.addMenu("&Help")
-
+        # Both documents sit on Options directly rather than under a Help
+        # submenu: three items is not enough to be worth a second level, and
+        # a submenu costs a keystroke and a hover on every visit.
         syntax_action = QAction("&Query Syntax", self)
         syntax_action.setStatusTip("What can go in the query field")
         syntax_action.triggered.connect(lambda: show_query_syntax(self))
-        help_menu.addAction(syntax_action)
+        options.addAction(syntax_action)
 
         guide_action = QAction("&User Guide", self)
         guide_action.setStatusTip("Everything Sonar does")
         guide_action.triggered.connect(lambda: show_user_guide(self))
-        help_menu.addAction(guide_action)
+        options.addAction(guide_action)
 
     # -- reporting ----------------------------------------------------------
 

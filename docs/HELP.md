@@ -21,4 +21,4 @@ appear anywhere in that file — not necessarily on the same line.*
 ---
 
 For everything else Sonar does, see the [User Guide](USER_GUIDE.md) — it is
-open under **Options ▸ Help ▸ User Guide** as well.
+open under **Options ▸ User Guide** as well.

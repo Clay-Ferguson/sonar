@@ -116,7 +116,7 @@ alone.
 ```
 
 - **Menu bar** — **File**, holding **Exit**, and **Options**, holding
-  **Settings** and a **Help** submenu.
+  **Settings**, **Query Syntax** and **User Guide**.
 - **Search row** — the query field and the **Search** button.
 - **Folder row** — the folder to search, and a **…** button that opens a
   folder chooser.
@@ -202,7 +202,7 @@ If ugrep rejects a query — an unbalanced parenthesis, a broken regex — Sonar
 shows the message it gave in a dialog, and the results list stays as it was.
 
 The same reference is available inside the app under
-**Options ▸ Help ▸ Query Syntax**.
+**Options ▸ Query Syntax**.
 
 ---
 
@@ -421,13 +421,13 @@ not thinking about.
 ## The Options menu
 
 The second menu in the menu bar — **File** holds only **Exit**. Options has
-a dialog and a submenu on it:
+three items on it:
 
 | Item | What it opens |
 |---|---|
 | **Settings** | the settings dialog described below |
-| **Help ▸ Query Syntax** | a short reference for the query syntax |
-| **Help ▸ User Guide** | this document, in a window of its own |
+| **Query Syntax** | a short reference for the query syntax |
+| **User Guide** | this document, in a window of its own |
 
 Neither one affects a search in progress. A saved setting applies from the
 next search, or the next press of Open.
@@ -523,8 +523,8 @@ you want to keep what is in it.
 
 ## The Help windows
 
-**Options ▸ Help** has two items, and both open the same kind of window: a
-document, rendered from a markdown file that ships with Sonar in `docs/`.
+Two items on the **Options** menu open the same kind of window: a document,
+rendered from a markdown file that ships with Sonar in `docs/`.
 
 | Item | Shows |
 |---|---|
@@ -554,7 +554,7 @@ window and into the query field.
 | Walk the results, previewing each | **↑ / ↓** in the results list |
 | See a result's full path | hover the row |
 | Open the Options menu | **Alt+O** |
-| Settings / Help from the open menu | **S** / **H** (Help then opens a submenu) |
+| Settings, Query Syntax, User Guide from the open menu | **S** / **Q** / **U** |
 | Resize the panes | drag the divider between them |
 | Save the settings dialog | **Enter** |
 | Close a dialog | **Esc** |
