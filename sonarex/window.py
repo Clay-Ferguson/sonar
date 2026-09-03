@@ -28,11 +28,12 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from windowchrome import close_markdown_windows
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
 from .config import search_depth
-from .help import show_help
+from .help import show_query_syntax, show_user_guide
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
 from .search import (
@@ -302,7 +303,7 @@ class MainWindow(QMainWindow):
     # -- menus --------------------------------------------------------------
 
     def _build_menus(self) -> None:
-        """The one menu: Options, with the two dialogs on it.
+        """Two menus: File, with Exit on it, and Options, with the two dialogs.
 
         These were icon buttons in the query row; a menu is where a desktop
         app puts things that open a dialog and are not part of the search
@@ -313,6 +314,15 @@ class MainWindow(QMainWindow):
         # Padding only, so the titles and items are comfortable targets
         # without the menu font growing away from the rest of the window.
         bar.setStyleSheet(menu_style())
+
+        file_menu = bar.addMenu("&File")
+        exit_action = QAction("E&xit", self)
+        exit_action.setStatusTip("Close Sonar")
+        # close(), not QApplication.quit(): closeEvent is what clears the PDF
+        # pane and removes the extracted temp copies, and quit() skips it.
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
         options = bar.addMenu("&Options")
 
         settings_action = QAction("&Settings", self)
@@ -322,10 +332,20 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(lambda: show_settings(self))
         options.addAction(settings_action)
 
-        help_action = QAction("&Help", self)
-        help_action.setStatusTip("Query syntax help")
-        help_action.triggered.connect(lambda: show_help(self))
-        options.addAction(help_action)
+        # A submenu rather than one item: both documents are markdown files
+        # under docs/, shown in the same window, and the short one is no
+        # longer the only help there is.
+        help_menu = options.addMenu("&Help")
+
+        syntax_action = QAction("&Query Syntax", self)
+        syntax_action.setStatusTip("What can go in the query field")
+        syntax_action.triggered.connect(lambda: show_query_syntax(self))
+        help_menu.addAction(syntax_action)
+
+        guide_action = QAction("&User Guide", self)
+        guide_action.setStatusTip("Everything Sonar does")
+        guide_action.triggered.connect(lambda: show_user_guide(self))
+        help_menu.addAction(guide_action)
 
     # -- reporting ----------------------------------------------------------
 
@@ -786,4 +806,10 @@ class MainWindow(QMainWindow):
         # sitting in /tmp. An editor holding one open keeps its own buffer, so
         # removing it here costs the user nothing.
         cleanup_temp_files()
+        # And the help windows, which are modeless and therefore still on
+        # screen. They do not hold the application open — a parented dialog
+        # has a transient parent, so it is not the last window as far as
+        # quitOnLastWindowClosed is concerned — but one of them outliving the
+        # window it is about, even for an instant, is wrong on its face.
+        close_markdown_windows()
         super().closeEvent(event)

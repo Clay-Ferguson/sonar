@@ -1,118 +1,55 @@
-"""The query-syntax help dialog.
+"""The two help windows, and where their content lives.
 
-Rendered with Qt's own rich-text support — a subset of HTML built into
-QtGui, not a web engine or any other extra dependency. That is enough for
-headings, bullets and inline monospace, which is all this needs.
+There is no help *text* here any more. Both documents are markdown files
+under `docs/`, rendered by `windowchrome.show_markdown()` — so changing what
+the help says means editing markdown, not Python, and the same two files
+serve as the repository's documentation and as the app's.
 
-Kept out of `window.py` so neither file has to know much about the other:
-it imports only `style`, which sits below everything, so `window` -> `help`
+Kept out of `window.py` so neither file has to know much about the other: it
+imports only `style`, which sits below everything, so `window` -> `help`
 never becomes a cycle.
 """
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
+from pathlib import Path
 
-from .style import action_button
+from PyQt6.QtWidgets import QWidget
+from windowchrome import MarkdownDialog, show_markdown
 
-# Wide enough that no bullet wraps at the default font size — the list reads
-# as one item per line, which is most of what makes it scannable.
-MIN_WIDTH = 520
+from . import APP_NAME
+from .style import action_button, apply_scrollbars
 
-# The word-boundary example, named rather than written inline where it is used.
-# It has to be: a backslash inside an f-string's *expression* is a syntax error
-# before Python 3.12 (PEP 701 lifted the restriction), and this package
-# declares `requires-python = ">=3.11"`. Interpolating the name instead keeps
-# the backslash out of the braces and the line legal on both.
-WORD_BOUNDARY_EXAMPLE = r"\bABC\b"
+# `docs/` sits beside the package, not inside it. That is safe rather than
+# lucky: `pyproject.toml` sets `package = false` and `start.sh` runs the app
+# out of the tree with `uv run --directory`, so there is no wheel this could
+# be missing from and nothing for `importlib.resources` to improve on.
+DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 
 
-def _mono(text: str) -> str:
-    """`text` as inline monospace.
-
-    The font family is named in a style attribute rather than left to a bare
-    <code> tag: Qt's rich text honors the tag, but spelling out the family
-    keeps the fragments looking the same whatever the surrounding style does
-    with it.
-    """
-    return f'<span style="font-family:monospace; font-weight:bold">{text}</span>'
-
-
-def _section(title: str, items: list[str]) -> str:
-    bullets = "".join(f"<li style='margin-bottom:4px'>{item}</li>" for item in items)
-    return (
-        f"<p style='margin-top:14px; margin-bottom:2px'><b>{title}</b></p>"
-        f"<ul style='margin-top:0'>{bullets}</ul>"
+def _open(name: str, title: str, parent: QWidget | None) -> MarkdownDialog:
+    """Show one of the documents, styled like the rest of the app."""
+    dialog = show_markdown(
+        DOCS_DIR / name,
+        parent,
+        title=f"{APP_NAME} — {title}",
+        # Every button in this app comes from `action_button`, and this is the
+        # one place that factory is handed *out* — the dialog lives in
+        # windowchrome, which has no opinion about button color, and a plain
+        # QPushButton would come out wearing the desktop theme.
+        button_factory=lambda text: action_button(text, uniform=True),
     )
+    # The wider scroll bars the rest of the app uses. `.view` is public for
+    # exactly this: styling the button factory cannot reach.
+    apply_scrollbars(dialog.view)
+    return dialog
 
 
-HELP_HTML = (
-    _section(
-        "Query Syntax",
-        [
-            f"Unquoted terms are {_mono('regular expressions')}",
-            f"{_mono('&quot;quoted phrases&quot;')} match literally (not as regex)",
-            f"Space or {_mono('AND')} requires all terms",
-            f"{_mono('OR')} matches any term",
-            f"{_mono('NOT')} (or {_mono('-term')}) excludes",
-            f"Parenthetical groupings of {_mono('AND')}/{_mono('OR')}/{_mono('NOT')}"
-            " are allowed",
-        ],
-    )
-    + _section(
-        "Regex Match Tips",
-        [
-            f"Whole word ABC: {_mono(WORD_BOUNDARY_EXAMPLE)}",
-            f"From 0 up to 10 characters: {_mono('.{0,10}')}",
-            f"Any string of chars: {_mono('.*')}",
-        ],
-    )
-    + "<p style='margin-top:14px'><i>Searches are case-insensitive, and a query"
-    " matches a file when its terms appear anywhere in that file — not"
-    " necessarily on the same line.</i></p>"
-)
+def show_query_syntax(parent: QWidget | None = None) -> None:
+    """The short reference for what can go in the query field."""
+    _open("HELP.md", "Query Syntax", parent)
 
 
-class HelpDialog(QDialog):
-    """A short, static reference for what can go in the query field."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Sonar — Query Syntax")
-        self.setMinimumWidth(MIN_WIDTH)
-
-        body = QLabel(HELP_HTML)
-        body.setTextFormat(Qt.TextFormat.RichText)
-        body.setWordWrap(True)
-        # Selectable so the regex fragments can be copied straight out of the
-        # dialog into the query field, which is the main thing anyone would
-        # want to do with them.
-        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        body.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        # A plain button rather than a QDialogButtonBox: the box supplies its
-        # own Close, styled by the native theme, which is exactly the button
-        # that would not match the rest of the app.
-        close = action_button("Close", uniform=True)
-        close.clicked.connect(self.reject)
-
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(close)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(body)
-        layout.addStretch(1)
-        layout.addLayout(buttons)
-
-
-def show_help(parent: QWidget | None = None) -> None:
-    """Open the help dialog, modally, and return once it is dismissed."""
-    HelpDialog(parent).exec()
+def show_user_guide(parent: QWidget | None = None) -> None:
+    """The whole user guide, the same one that ships in `docs/`."""
+    _open("USER_GUIDE.md", "User Guide", parent)

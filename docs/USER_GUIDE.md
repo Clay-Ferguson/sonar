@@ -29,7 +29,7 @@ detail, see [CONFIG.md](CONFIG.md).
 - [Searching inside archives](#searching-inside-archives)
 - [The Options menu](#the-options-menu)
 - [The Settings dialog](#the-settings-dialog)
-- [The Help dialog](#the-help-dialog)
+- [The Help windows](#the-help-windows)
 - [Keyboard and mouse](#keyboard-and-mouse)
 - [Messages you may see](#messages-you-may-see)
 - [Troubleshooting](#troubleshooting)
@@ -115,7 +115,8 @@ alone.
 └──────────────────────────┴──────────────────────────────────┘
 ```
 
-- **Menu bar** — one menu, **Options**, holding **Settings** and **Help**.
+- **Menu bar** — **File**, holding **Exit**, and **Options**, holding
+  **Settings** and a **Help** submenu.
 - **Search row** — the query field and the **Search** button.
 - **Folder row** — the folder to search, and a **…** button that opens a
   folder chooser.
@@ -200,7 +201,8 @@ query, never mistaken for an option.
 If ugrep rejects a query — an unbalanced parenthesis, a broken regex — Sonar
 shows the message it gave in a dialog, and the results list stays as it was.
 
-The same reference is available inside the app under **Options ▸ Help**.
+The same reference is available inside the app under
+**Options ▸ Help ▸ Query Syntax**.
 
 ---
 
@@ -418,12 +420,14 @@ not thinking about.
 
 ## The Options menu
 
-The one menu in the menu bar. It has two items, both opening a dialog:
+The second menu in the menu bar — **File** holds only **Exit**. Options has
+a dialog and a submenu on it:
 
 | Item | What it opens |
 |---|---|
 | **Settings** | the settings dialog described below |
-| **Help** | a short reference for the query syntax |
+| **Help ▸ Query Syntax** | a short reference for the query syntax |
+| **Help ▸ User Guide** | this document, in a window of its own |
 
 Neither one affects a search in progress. A saved setting applies from the
 next search, or the next press of Open.
@@ -517,11 +521,27 @@ you want to keep what is in it.
 
 ---
 
-## The Help dialog
+## The Help windows
 
-**Options ▸ Help** shows a compact reference for the query language — the
-Boolean operators, quoting, and a few regex fragments. The text is selectable,
-so you can copy a fragment straight out of the dialog into the query field.
+**Options ▸ Help** has two items, and both open the same kind of window: a
+document, rendered from a markdown file that ships with Sonar in `docs/`.
+
+| Item | Shows |
+|---|---|
+| **Query Syntax** | a compact reference for the query language — the Boolean operators, quoting, and a few regex fragments |
+| **User Guide** | this document — so if you are reading this inside Sonar, that is how you got here |
+
+The windows are **modeless**: they stay open beside the main window and you
+can search while one is up. Asking for the same document again raises the
+window already showing it rather than opening a second copy of it.
+
+Links work. A **Contents** entry jumps to that section, a link to another
+document — the User Guide's pointers to `CONFIG.md`, say — opens it in the
+same window, and the **Back** button returns you to where you were, at the
+place on the page you left. A link out to the web opens in your browser.
+
+The text is selectable, so a regex fragment can be copied straight out of a
+window and into the query field.
 
 ---
 
@@ -534,7 +554,7 @@ so you can copy a fragment straight out of the dialog into the query field.
 | Walk the results, previewing each | **↑ / ↓** in the results list |
 | See a result's full path | hover the row |
 | Open the Options menu | **Alt+O** |
-| Settings / Help from the open menu | **S** / **H** |
+| Settings / Help from the open menu | **S** / **H** (Help then opens a submenu) |
 | Resize the panes | drag the divider between them |
 | Save the settings dialog | **Enter** |
 | Close a dialog | **Esc** |

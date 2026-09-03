@@ -92,7 +92,8 @@ the query only ever comes from the window.
   the two rows, the splitter, the status label, and the end-of-search sort. It
   is a `QMainWindow` rather than a plain `QWidget` only so `menuBar()` exists —
   everything else lives on a central widget; `_build_menus()` is the whole menu
-  bar, one Options menu with Settings and Help on it, labels only (these
+  bar: a File menu with Exit on it, and an Options menu carrying Settings and
+  a Help submenu (Query Syntax, User Guide), labels only (these
   were square icon buttons in the query row until they became menu items). Also the Prev/Next walk: `_adopt_matches()`
   flattens the spans into reading order on `self._matches`, and
   `_go_to_match()` is the single place that moves `self._match_index`, marks
@@ -126,6 +127,10 @@ the query only ever comes from the window.
   Save), `SECONDARY_BUTTON_BG` for anything beside it (Cancel, Close, the
   folder-row `…`), `NAV_BUTTON_BG` for Prev/Next, `selection_button_bg()` for
   Open — so a new button picks a role rather than a hex value.
+  `action_button` is also handed *out* of the app, as the `button_factory`
+  `help.py` gives `windowchrome.show_markdown()` — the one place a style
+  factory crosses the library boundary, and the reason that dialog's buttons
+  match the rest of the app rather than the desktop theme.
   `SONAREX_THEME` also lives here: the app's override of `windowchrome`'s
   neutral title bar default (`#1369da`), and the one thing the library needs
   from this app. `splitter_style()` derives its color from
@@ -136,6 +141,25 @@ the query only ever comes from the window.
   one more `_add_patterns()`/`_add_line()`/`_add_check()`/`_add_combo()` call
   plus a field on
   `Settings`; the dialog sizes to its contents, so nothing else has to change.
+- `sonarex/help.py` — the two Options ▸ Help windows, and nothing else. There
+  is no help *text* here: both documents are markdown files under `docs/`,
+  rendered by `windowchrome.show_markdown()`, so **changing what the help says
+  means editing markdown, not Python** — and the same two files serve as the
+  repository's documentation and as the app's. `DOCS_DIR` is
+  `Path(__file__).resolve().parent.parent / "docs"`, which is safe rather than
+  lucky: `pyproject.toml` sets `package = false` and `start.sh` runs out of the
+  tree, so there is no wheel this could be missing from and nothing for
+  `importlib.resources` to improve on. `_open()` is the whole of what the app
+  contributes to a window the library builds — the title, `action_button` as
+  the `button_factory`, and `apply_scrollbars()` on the dialog's public
+  `.view`. The title it passes names only the document the window opens on:
+  follow a link out of it and the window renames itself after whatever it is
+  showing. It imports only `style`, so `window` -> `help` is still not a cycle.
+  It replaced ~120 lines that assembled `HELP_HTML` out of `<span>` and `<li>`
+  fragments for a `QLabel`; `WORD_BOUNDARY_EXAMPLE` went with them, and so did
+  the constraint that named it — a backslash inside an f-string *expression*
+  being a syntax error before 3.12 stops mattering when the backslash lives in
+  a `.md` file.
 - `sonarex/viewer.py` — `read_for_preview()`: size cap, binary sniff, decode.
   Always returns a string, never raises. It takes a `Hit` and the setting the
   *search* ran with; a member or a compressed file diverts to
@@ -242,8 +266,13 @@ the query only ever comes from the window.
   app — it once read the title bar blue and lightened it, painting the handle a
   brighter blue than the bar — while `scrollbar_style()` uses `Base` and
   `selection_button_bg()` uses `Highlight`, neither of which the title bar
-  touches. That is the whole integration: three calls, and nothing about any
-  window's layout changes.
+  touches. That was the whole integration — three calls, and nothing about any
+  window's layout changes — until the help windows: `show_markdown()` and
+  `close_markdown_windows()` come from the same library, and are unrelated to
+  all of the above. The viewer needs no `configure()`/`install()` ordering and
+  works off Wayland; the only thing it shares with the chrome is that it reads
+  its link and code colors through `body_window_color()` for the reason given
+  here.
 
   The library briefly also painted a thicker border just inside every window
   (`bordered_body()`, `WINDOW_BORDER_WIDTH`, a `QMenuBar` margin to inset the
@@ -251,6 +280,47 @@ the query only ever comes from the window.
   takes the title bar's color for free, is what the design wants. Do not
   reintroduce it — `window.py`, `settings.py` and `help.py` are back to plain
   layouts and `menu_style()` is back to padding only.
+
+- **The help windows render what Qt renders, and nothing restyles it.** Links
+  are Qt's blue and code blocks have no background band, deliberately: both
+  would mean modifying the rendered document, and that is what broke it once
+  already (see below). Fragment links work by *finding* the heading and
+  scrolling to it, not by writing anchors into the document. All of it lives
+  in `windowchrome/markdownview.py` — do not reimplement any of it here, and
+  read `../windowchrome/README.md` §5 before changing it there.
+
+- **A whole run of paragraphs rendering as a band of blank space is a layout
+  bug, not a color one.** It bit the User Guide's last three sections: the
+  text was present and could be selected and copied, but occupied almost no
+  height. The cause was in windowchrome, which used to restyle the rendered
+  document — several hundred format changes to a document Qt lays out
+  incrementally stops the layout part way through (measured: 73 of 302
+  paragraphs, and a document reporting itself 5338px tall instead of 7480).
+  The view no longer modifies the document at all, which is the real fix.
+  `tests/test_help.py::test_the_whole_document_is_laid_out` stays as the guard
+  and is the only test anywhere that would catch a regression: a synthetic
+  document of the same length and shape does not reproduce it, so it has to
+  run against the real `docs/`. Do not delete it as redundant with
+  windowchrome's suite.
+
+- **`docs/` is shipped, runtime-read content now, not just prose.** The two
+  files behind Options ▸ Help are read off disk by the running app, so
+  renaming a heading moves its slug and breaks every link into it — including
+  the guide's own Contents list, which is a table of contents people click.
+  `USER_GUIDE.md` already carries `### How deep to look inside them` twice,
+  which is what makes GitHub's `-1` disambiguation load-bearing rather than
+  theoretical. `tests/test_help.py` checks every link in every document
+  against `windowchrome.heading_slugs`, and it is imported rather than
+  reimplemented on purpose: a checker with its own copy of the numbering rule
+  is one that will eventually disagree with the anchors in the document.
+
+- **A modeless help window is still on screen when the main window closes.**
+  It does *not* hold the process open — a parented `QDialog` has a transient
+  parent, so it is not the last window as far as `quitOnLastWindowClosed` is
+  concerned, and measured, the app quits anyway — but it is visible for as
+  long as that takes, and a help window outliving the window it is about is
+  wrong on its face. `closeEvent` calls `close_markdown_windows()` for this,
+  beside `_pdf.clear()` and `cleanup_temp_files()`.
 
 - **With `-z`, an inclusion `-g` glob filters what is *inside* an archive, not
   which archives are opened.** `-g '*.zip'` alone returns nothing; `-g '*.tex'`
@@ -484,7 +554,20 @@ into pytest's `tmp_path`, so nothing is checked in and nothing is left in
 `/tmp` by hand. `helpers.py` reads the window back — `labels()`,
 `highlighted()`, `select()`, `nav()`. The suites are split by what they drive:
 `test_archive` (no Qt at all), `test_config`, `test_settings`,
-`test_window`, `test_queries`, `test_nested`.
+`test_window`, `test_queries`, `test_nested`, `test_help`.
+
+`test_help.py` needs no fixture from `conftest.py` and adds none: it reads
+`docs/` off disk and drives the menu. Its two link tests are pure text and run
+in milliseconds — run them before and after touching anything under `docs/`.
+The autouse `dialogs` fixture is irrelevant to it, since a modeless `show()`
+never blocks; note also that it must *not* hand a help window to
+`qtbot.addWidget`, because those windows set `WA_DeleteOnClose` and delete
+themselves, which makes pytest-qt's teardown fail the *following* test.
+
+The rendering itself is not tested here. It is windowchrome's, and
+`../windowchrome/tests/` covers it — anchors surviving a Back, a link to
+nothing not blanking the document, images fitted on the first render, and the
+dialog registry. Run that suite too when changing either.
 
 These are integration tests, deliberately: they run a real ugrep over real
 archives rather than mocking it, because nearly every bug this code has had
@@ -622,6 +705,10 @@ touches the real `~/.config`.
 - Further settings. The dialog is built to grow — another `_add_patterns()` or
   `_add_line()` call and it re-sizes itself — and `render_config()` carries
   unknown keys through, so an option can be added on either side first.
+- A Forward button in the help windows. `QTextBrowser.forward()` is right
+  there; only Back is wired, because only Back has ever been wanted.
+- Find-in-page, or a document outline, in the help windows. The user guide is
+  632 lines and its Contents list is currently the only way to jump.
 - Keyboard shortcuts for Prev/Next. The buttons are the only way to step; F3
   and Shift+F3 would be a `QShortcut` each onto `_step_match`, which already
   takes the direction as its argument.

@@ -38,6 +38,10 @@ dialog, keyboard shortcuts and troubleshooting. Start here.
 ⚙️ **[Configuration reference](docs/CONFIG.md)** — the YAML file behind the
 settings dialog, key by key.
 
+Both are readable **inside the app** as well, under **Options ▸ Help** — the
+same files, rendered in a window with working links and a Back button, so the
+guide is never a browser tab away from the thing it describes.
+
 🛠 **[AGENTS.md](AGENTS.md)** — architecture and implementation notes, for
 anyone working on the code.
 
@@ -59,8 +63,9 @@ the text inside PDFs, so they turn up in results.
 Sonar's colored title bar and window border come from
 **[windowchrome](https://github.com/Clay-Ferguson/windowchrome)**, a small
 reusable PyQt6 library kept in its own repository so other apps can wear the
-same chrome. It is **not on PyPI**: `pyproject.toml` resolves it by path, from
-a directory sitting *beside* this one.
+same chrome — and, since the help windows were added, so they can show their
+own documentation the same way. It is **not on PyPI**: `pyproject.toml`
+resolves it by path, from a directory sitting *beside* this one.
 
 ```bash
 cd ..                      # the directory holding sonarex/
