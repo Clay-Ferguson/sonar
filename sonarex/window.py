@@ -59,6 +59,7 @@ from .style import (
     icon_button,
     menu_style,
     mono_font,
+    results_list_style,
     selection_button_bg,
     splitter_style,
 )
@@ -212,6 +213,10 @@ class MainWindow(QMainWindow):
         # --- results / preview -------------------------------------------
         self.results = QListWidget()
         self.results.setFont(mono_font())
+        # Rows come out packed tight against each other otherwise: Qt sizes a
+        # list row to its text and nothing more, which reads as a block of
+        # paths rather than a list of them.
+        self.results.setStyleSheet(results_list_style())
         self.results.currentItemChanged.connect(self._on_selection_changed)
 
         self.preview = QPlainTextEdit()

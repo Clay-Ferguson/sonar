@@ -135,6 +135,14 @@ MENU_ITEM_PADDING = "10px 32px"
 # Same reasoning as the scroll bars: a bigger target is an easier one to hit.
 CHECKBOX_SCALE = 2
 
+# The space around a file name in the results list, in pixels. Qt packs list
+# rows at the bare height of their text, which runs a long list of paths
+# together into one block with no line between one name and the next. Four
+# pixels above and below is enough to read them as separate rows without
+# stretching the list into a menu; the horizontal half holds the names off the
+# pane edge, so the first character is not flush against the border.
+RESULT_ITEM_PADDING = "4px 6px"
+
 
 def action_button_style(background: str, padding: str = "0px") -> str:
     """Qt stylesheet for a header button of the given background color.
@@ -328,6 +336,28 @@ def splitter_style() -> str:
         QSplitter::handle:horizontal {{
             background: {handle.name()};
             width: {SPLITTER_HANDLE_WIDTH}px;
+        }}
+    """
+
+
+
+def results_list_style() -> str:
+    """Qt stylesheet giving the results list room around each file name.
+
+    Padding only, for the same reason `menu_style()` is: the list keeps the
+    desktop's own colors and its font comes from `mono_font()`. And with the
+    same catch — styling `::item` at all takes those rows out of the native
+    style's painting, selection included, so the selected row's colors have to
+    be restated here in `palette()` terms or the current file would stop
+    looking current.
+    """
+    return f"""
+        QListWidget::item {{
+            padding: {RESULT_ITEM_PADDING};
+        }}
+        QListWidget::item:selected {{
+            background: palette(highlight);
+            color: palette(highlighted-text);
         }}
     """
 
