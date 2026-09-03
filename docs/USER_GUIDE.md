@@ -99,21 +99,7 @@ alone.
 
 ## The window at a glance
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Options                                            ← menu bar│
-├─────────────────────────────────────────────────────────────┤
-│ Search:  [ query…                              ] [ Search ]  │
-│ Folder:  [ /home/you/projects                  ] [   …    ]  │
-├──────────────────────────┬──────────────────────────────────┤
-│ matching files           │ the selected file,               │
-│ (newest modified first)  │ read-only, matches highlighted   │
-│                          │                                  │
-│                          │                                  │
-│                          ├──────────────────────────────────┤
-│                          │ [Open][Prev][Next] 3 of 12  ☑ Wrap│
-└──────────────────────────┴──────────────────────────────────┘
-```
+![](img/application.png)
 
 - **Menu bar** — **File**, holding **Exit**, and **Options**, holding
   **Settings**, **Query Syntax** and **User Guide**.
