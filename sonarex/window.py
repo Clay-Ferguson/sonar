@@ -49,6 +49,7 @@ from .settings import show_settings
 from .style import (
     CONTROL_BAR_PADDING,
     NAV_BUTTON_BG,
+    NAV_GROUP_SPACING,
     PANE_GAP,
     PRIMARY_BUTTON_BG,
     SECONDARY_BUTTON_BG,
@@ -287,9 +288,17 @@ class MainWindow(QMainWindow):
         # the spans are exact, so a line carrying three hits is three stops.
         # Both wrap around, which is what makes them usable without also
         # having to watch the counter to know when to stop.
-        self.prev_button = self._nav_button("Prev", "Go to the previous match")
+        #
+        # Arrows rather than the words: the pair is one control, and two
+        # arrows pointing away from the counter between them say which way
+        # each goes with nothing left to read.
+        self.prev_button = self._nav_button(
+            QStyle.StandardPixmap.SP_ArrowLeft, "Go to the previous match"
+        )
         self.prev_button.clicked.connect(lambda: self._step_match(-1))
-        self.next_button = self._nav_button("Next", "Go to the next match")
+        self.next_button = self._nav_button(
+            QStyle.StandardPixmap.SP_ArrowRight, "Go to the next match"
+        )
         self.next_button.clicked.connect(lambda: self._step_match(1))
 
         # Says which match of how many, because the highlight alone cannot:
@@ -303,13 +312,24 @@ class MainWindow(QMainWindow):
         self.wrap_check.setChecked(True)  # matches the pane's initial mode
         self.wrap_check.toggled.connect(self._set_word_wrap)
 
+        # The two arrows and the counter they move are one control, so they
+        # travel as one widget: grouped tight, then centered in the bar by the
+        # stretches on either side of it. Left-justified with everything else
+        # they read as three more buttons in a row of unrelated ones.
+        match_nav = QWidget()
+        nav_row = QHBoxLayout(match_nav)
+        nav_row.setContentsMargins(0, 0, 0, 0)
+        nav_row.setSpacing(NAV_GROUP_SPACING)
+        nav_row.addWidget(self.prev_button)
+        nav_row.addWidget(self.next_button)
+        nav_row.addWidget(self.match_label)
+
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(PANE_GAP, 0, 0, 0)
         control_bar.addWidget(self.open_button)
         control_bar.addWidget(self.folder_button)
-        control_bar.addWidget(self.prev_button)
-        control_bar.addWidget(self.next_button)
-        control_bar.addWidget(self.match_label)
+        control_bar.addStretch(1)
+        control_bar.addWidget(match_nav)
         control_bar.addStretch(1)
         control_bar.addWidget(self.wrap_check)
 
@@ -692,9 +712,13 @@ class MainWindow(QMainWindow):
         self.open_button.setEnabled(enabled)
         self.folder_button.setEnabled(enabled)
 
-    def _nav_button(self, text: str, tip: str) -> QPushButton:
-        """One of the two match-stepping buttons, styled alike."""
-        button = action_button(text, NAV_BUTTON_BG, CONTROL_BAR_PADDING)
+    def _nav_button(self, pixmap: QStyle.StandardPixmap, tip: str) -> QPushButton:
+        """One of the two match-stepping buttons, styled alike.
+
+        Square and icon-only, sized off the padding of the text buttons beside
+        it so the whole bar stays one height.
+        """
+        button = icon_button(pixmap, NAV_BUTTON_BG, CONTROL_BAR_PADDING)
         button.setToolTip(tip)
         # Disabled until a file with matches is on screen, for the same reason
         # Open is: a button that silently does nothing is worse than a dim one.

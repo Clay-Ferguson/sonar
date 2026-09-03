@@ -94,6 +94,12 @@ ACTION_BUTTON_TEXT = "Search"
 # button is padded more modestly than the Search button.
 CONTROL_BAR_PADDING = "5px 16px"
 
+# Inside the match-navigation group — the two arrows and the counter they
+# move — in pixels. Tighter than the layout's own spacing between unrelated
+# controls, which is what makes the three read as one thing sitting in the
+# middle of the bar rather than three that happen to be adjacent.
+NAV_GROUP_SPACING = 6
+
 # How much of an icon button's side is *not* icon, in pixels: its border, and
 # the ring of background that keeps the glyph from touching it. The rest is
 # given to the icon, so the button reads as an icon with a frame around it
