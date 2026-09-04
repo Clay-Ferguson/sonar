@@ -15,10 +15,8 @@
 - From 0 up to 10 characters: `.{0,10}`
 - Any string of chars: `.*`
 
-*Searches are case-insensitive, and a query matches a file when its terms
-appear anywhere in that file — not necessarily on the same line.*
+*Searches are case-insensitive, and a query matches a file when its terms appear anywhere in that file — not necessarily on the same line.*
 
 ---
 
-For everything else Sonar does, see the [User Guide](USER_GUIDE.md) — it is
-open under **Options ▸ User Guide** as well.
+For everything else Sonar does, see the [User Guide](USER_GUIDE.md) — it is open under **Options ▸ User Guide** as well.
