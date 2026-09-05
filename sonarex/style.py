@@ -136,6 +136,7 @@ MIN_SCROLLBAR_EXTENT = 12
 # that the extra height costs nothing.
 MENU_BAR_ITEM_PADDING = "8px 16px"
 MENU_ITEM_PADDING = "10px 32px"
+MENU_BORDER = "1px solid #9a9a9a"
 
 # How much bigger than the desktop's own a check box's indicator is drawn.
 # Same reasoning as the scroll bars: a bigger target is an easier one to hit.
@@ -470,7 +471,19 @@ def menu_style() -> str:
     or a menu would highlight nothing under the pointer. It is written in
     `palette()` terms rather than pinned colors so it still follows the
     desktop theme, the way the unstyled menu did.
+
+    The drop-downs also carry `MENU_BORDER`: the pop-up takes the same
+    surface color as the window behind it, so without an edge a menu has no
+    visible boundary at all. The gray is pinned rather than derived because
+    it has to read against both a light and a dark surface, and giving
+    `QMenu` a border means giving it an explicit background too: a styled
+    frame stops the native style painting the pop-up and Qt fills it from
+    the `Window` role instead — which windowchrome has repurposed for the
+    title bar, so leaving it out paints the menu title-bar blue rather than
+    the gray it had before. `body_window_color()` is that gray, and is why
+    this one color is interpolated rather than written as `palette(window)`.
     """
+    body = body_window_color().name()
     return f"""
         QMenuBar::item {{
             padding: {MENU_BAR_ITEM_PADDING};
@@ -480,7 +493,11 @@ def menu_style() -> str:
             background: palette(highlight);
             color: palette(highlighted-text);
         }}
-        QMenu {{ padding: 6px; }}
+        QMenu {{
+            padding: 6px;
+            background: {body};
+            border: {MENU_BORDER};
+        }}
         QMenu::item {{ padding: {MENU_ITEM_PADDING}; }}
         QMenu::item:selected {{
             background: palette(highlight);
