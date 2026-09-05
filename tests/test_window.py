@@ -67,6 +67,18 @@ def test_argv_carries_the_flags_when_on(conf):
     ]
 
 
+def test_argv_carries_fuzzy_when_set(conf):
+    conf(archives=False, fuzzy=2)
+    assert "--fuzzy=2" in build_argv("q", "/f")
+
+
+def test_argv_has_no_fuzzy_flag_when_off(conf):
+    """0 means the flag is absent, not `--fuzzy=0`: ugrep rejects that outright
+    (`invalid argument -Z=0`, exit 2), exactly as it rejects `--zmax=0`."""
+    conf(archives=False, fuzzy=0)
+    assert not any(arg.startswith("--fuzzy") for arg in build_argv("q", "/f"))
+
+
 def test_a_zip_is_one_opaque_row_when_off(conf, tree, search):
     """The fixture's entries are *stored*, so ugrep matches its raw bytes even
     without -z. That has always happened; what matters is that it is one

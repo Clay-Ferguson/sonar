@@ -17,6 +17,8 @@
 
 *Searches are case-insensitive, and a query matches a file when its terms appear anywhere in that file — not necessarily on the same line.*
 
+*With **Find near matches** turned on in **Options ▸ Settings**, every term above — quoted, unquoted or negated — also matches words spelled a little differently. The first letter still has to be right. See [Finding near matches](USER_GUIDE.md#finding-near-matches).*
+
 ---
 
 For everything else Sonar does, see the [User Guide](USER_GUIDE.md) — it is open under **Options ▸ User Guide** as well.

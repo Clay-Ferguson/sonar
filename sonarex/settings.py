@@ -37,6 +37,7 @@ from . import APP_NAME
 from .archive import MAX_DEPTH
 from .config import (
     CONFIG_PATH,
+    MAX_FUZZY,
     Settings,
     load_settings,
     parse_pattern_lines,
@@ -70,6 +71,18 @@ DEPTH_LABELS = [
     "1 — archives only",
     "2 — also archives inside archives",
     "3 — three levels deep",
+]
+
+# What each --fuzzy value is called. Named rather than numbered first, unlike
+# the depth: the number counts something a user has no feel for — "2" says
+# nothing about how much wider a search gets — so the adjective leads and the
+# count explains it. The first entry is 0, which is why this dropdown is read
+# from a base of 0 rather than 1.
+FUZZY_LABELS = [
+    "Off — exact matches only",
+    "Close — 1 character different",
+    "Looser — 2 characters different",
+    "Loosest — 3 characters different",
 ]
 
 # Wide enough for a long exclusion path without wrapping it — these are read
@@ -187,6 +200,26 @@ class SettingsDialog(QDialog):
         self.depth_combo.setEnabled(settings.archives)
         self.archives_check.toggled.connect(self.depth_combo.setEnabled)
 
+        self.fuzzy_combo = self._add_combo(
+            "Find near matches:",
+            FUZZY_LABELS[: MAX_FUZZY + 1],
+            settings.fuzzy,
+            # Both of these surprise people and both are ugrep's doing: an
+            # approximate match always begins at the pattern's first character,
+            # and the setting is a property of the matcher rather than of one
+            # kind of term, so a negated term is widened along with everything
+            # else and therefore excludes more.
+            tooltip=(
+                "Also finds words spelled a little differently from what you"
+                " typed —\n\"color\" then finds \"colour\" too.\n"
+                "The first letter still has to be right: \"xolor\" finds"
+                " nothing at any setting.\n"
+                "NOT and - terms become approximate as well, so they exclude"
+                " more."
+            ),
+            base=0,
+        )
+
         self.open_edit = self._add_line(
             "Command the Open button runs (the file is added as the last argument):",
             settings.open_command,
@@ -273,20 +306,27 @@ class SettingsDialog(QDialog):
         return check
 
     def _add_combo(
-        self, label: str, options: list[str], value: int, tooltip: str = ""
+        self,
+        label: str,
+        options: list[str],
+        value: int,
+        tooltip: str = "",
+        base: int = 1,
     ) -> QComboBox:
-        """A labelled dropdown over 1..len(options), appended to the stack.
+        """A labelled dropdown over base..base+len(options)-1, appended to the stack.
 
-        The value is the 1-based position, not the text, so the caller reads
-        `currentIndex() + 1` and never has to parse a label back into a number.
-        Sized to its contents and pushed left rather than stretched across the
-        dialog: a field as wide as the pattern areas would read as holding
-        something as large as they do.
+        The value is the position it stands for, not the text, so the caller
+        reads `currentIndex() + base` and never has to parse a label back into
+        a number. `base` is what the *first* option means: 1 for a count of
+        levels, 0 for a setting whose first entry is "off". Sized to its
+        contents and pushed left rather than stretched across the dialog: a
+        field as wide as the pattern areas would read as holding something as
+        large as they do.
         """
         self._begin_section(label, tooltip)
         combo = QComboBox()
         combo.addItems(options)
-        combo.setCurrentIndex(max(0, min(len(options) - 1, value - 1)))
+        combo.setCurrentIndex(max(0, min(len(options) - 1, value - base)))
         combo.setToolTip(tooltip)
         # Matched to the buttons, like the single-line fields, so the controls
         # in this dialog are all one height.
@@ -329,6 +369,7 @@ class SettingsDialog(QDialog):
                 archives=self.archives_check.isChecked(),
                 archive_depth=self.depth_combo.currentIndex() + 1,
                 open_command=self.open_edit.text().strip(),
+                fuzzy=self.fuzzy_combo.currentIndex(),
             )
         )
         if error:

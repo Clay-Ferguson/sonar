@@ -70,6 +70,20 @@ DEFAULT_ARCHIVES = False
 # level, which is why it is a choice rather than simply set high.
 DEFAULT_ARCHIVE_DEPTH = 1
 
+# How many characters a match may differ by — ugrep's --fuzzy. 0 is off, and
+# off is the whole of what 0 means to every caller: the flag never goes on the
+# argv at all, since ugrep rejects `--fuzzy=0` outright the way it rejects
+# `--zmax=0`. Off by default because approximate matching returns files that do
+# not contain what was typed, which is a fine thing to ask for and a confusing
+# thing to be given.
+DEFAULT_FUZZY = 0
+
+# The ceiling offered for --fuzzy. ugrep allows far more, but the noise grows
+# faster than the usefulness: measured over /usr/share/doc, `copyright` returns
+# 2285 files exactly, 2426 at 3 — and 4826 at 4, where `color` starts matching
+# `cat`. Three is where it stops being a search.
+MAX_FUZZY = 3
+
 # The command the Open button runs when nothing else is configured. Carried
 # over from the Nautilus version, which spawned exactly this.
 DEFAULT_OPEN_COMMAND = "/usr/bin/code"
@@ -88,10 +102,16 @@ class Settings(NamedTuple):
     archives: bool
     archive_depth: int
     open_command: str
+    fuzzy: int
 
 
 DEFAULTS = Settings(
-    [], DEFAULT_EXCLUDED, DEFAULT_ARCHIVES, DEFAULT_ARCHIVE_DEPTH, DEFAULT_OPEN_COMMAND
+    [],
+    DEFAULT_EXCLUDED,
+    DEFAULT_ARCHIVES,
+    DEFAULT_ARCHIVE_DEPTH,
+    DEFAULT_OPEN_COMMAND,
+    DEFAULT_FUZZY,
 )
 
 
@@ -144,6 +164,15 @@ ARCHIVE_DEPTH_COMMENT = """\
   # How many levels deep to look, when the above is on. 1 opens an archive;
   # 2 also opens an archive found inside one, and so on. Each level costs
   # another pass, so raise it only if you keep archives inside archives.
+"""
+
+FUZZY_COMMENT = """\
+  # Find near matches: how many characters a word may differ by and still
+  # count as a hit. 0 is off — only exact matches. 1 finds "colour" for
+  # "color"; 3 is as loose as this goes, and gets noisy.
+  #
+  # The FIRST letter always has to be right: "xolor" finds nothing at any
+  # setting. NOT / - terms become approximate too, so they exclude more.
 """
 
 
@@ -207,7 +236,7 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
     extra_search = {
         k: v
         for k, v in search.items()
-        if k not in ("included", "excluded", "archives", "archive_depth")
+        if k not in ("included", "excluded", "archives", "archive_depth", "fuzzy")
     }
     extra_open = {k: v for k, v in opening.items() if k != "command"}
     extra_top = {k: v for k, v in config.items() if k not in ("search", "open")}
@@ -224,6 +253,9 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
         + "\n"
         + ARCHIVE_DEPTH_COMMENT
         + f"  archive_depth: {settings.archive_depth}\n"
+        + "\n"
+        + FUZZY_COMMENT
+        + f"  fuzzy: {settings.fuzzy}\n"
         + _indent_yaml(extra_search, "  ")
         + "\nopen:\n"
         + OPEN_COMMENT
@@ -417,6 +449,22 @@ def search_depth() -> int:
     )
 
 
+def search_fuzzy() -> int:
+    """How many characters a match may differ by: 0 when it should not.
+
+    One key rather than the checkbox-and-number pair `search_depth` folds,
+    because there is no checkbox to fold: "off" is the first position of the
+    same dropdown, so a second key would have nothing to remember while it was
+    clear.
+
+    0 is meaningful and is not merely a floor. `--fuzzy=0` is an error to ugrep
+    — `invalid argument -Z=0`, exit 2, exactly as `--zmax=0` is — so 0 has to
+    mean the flag is left off the argv entirely, which is what every caller
+    does with it.
+    """
+    return get_int(load_config(), "search", "fuzzy", DEFAULT_FUZZY, 0, MAX_FUZZY)
+
+
 def open_command() -> str:
     """The Open button's command line — the one call the viewer needs.
 
@@ -461,6 +509,7 @@ def load_settings() -> tuple[Settings, str | None]:
                 config, "search", "archive_depth", DEFAULT_ARCHIVE_DEPTH, 1, MAX_DEPTH
             ),
             open_command=get_string(config, "open", "command", DEFAULT_OPEN_COMMAND),
+            fuzzy=get_int(config, "search", "fuzzy", DEFAULT_FUZZY, 0, MAX_FUZZY),
         ),
         error,
     )

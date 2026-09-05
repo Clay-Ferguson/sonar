@@ -6,7 +6,7 @@ Sonar reads one file:
 ~/.config/sonarex/sonarex-config.yaml
 ```
 
-It is created with defaults the first time Sonar runs. It holds the two lists of glob patterns that scope every search, the two archive settings, and the command the Open button runs.
+It is created with defaults the first time Sonar runs. It holds the two lists of glob patterns that scope every search, the two archive settings, how closely a word has to match, and the command the Open button runs.
 
 Edit them from **Options ▸ Settings** in the window's menu bar. The file can still be edited by hand; the dialog and the file are two views of the same settings. Saving from the dialog **rewrites the file**, so any comments or blank lines you added by hand are replaced by Sonar's own.
 
@@ -36,6 +36,10 @@ search:
 
   # How many levels of archive-inside-archive to open, 1 to 3.
   archive_depth: 1
+
+  # How many characters a word may differ by and still count as a hit.
+  # 0 is off — exact matches only.
+  fuzzy: 0
 
 open:
   # The command the Open button runs.
@@ -100,6 +104,22 @@ bundle.tar.gz → vendor.zip → src/parser.py
 Each level is another decompression pass over everything the level above it produced, so the cost grows with the setting. Leave it at `1` unless you actually keep archives inside archives.
 
 Out-of-range values are clamped rather than rejected — `archive_depth: 99` means 3 — since a number outside the range says clearly enough what was wanted. ugrep itself allows up to 99; Sonar offers 3 because past that the cost is real and the case is rare.
+
+## `search.fuzzy`
+
+`0`, `1`, `2` or `3`, default `0`. The **Find near matches** dropdown, which is ugrep's `--fuzzy`. `0` means exact matching and is off in the fullest sense: the flag is not passed at all, and the command line is the one Sonar has always built.
+
+Above `0` it is how many characters a word may differ by and still be found — one edit finds `colour` for `color`, two also finds `collour`. Unlike the archive settings this is a single key rather than a switch plus a number, because "off" is the first position of the same dropdown and there is no cleared checkbox whose value would need remembering.
+
+Three things about it are ugrep's behavior rather than choices Sonar made, and all three surprise people:
+
+- **The first letter always has to be right.** An approximate match has to begin at the pattern's first character, so `xolor` finds nothing at any setting even though it is one character from `color`. This is also why a short query stays useful: `if` at `3` still does not match `of`.
+- **It applies to the whole query, not to one kind of term.** Quoted phrases, unquoted regexes and Boolean terms all become approximate together. A regex is widened *on top of itself* — `col(o|ou)r` at `1` also reaches `collour`.
+- **`NOT` and `-` terms become approximate too**, so a negated term excludes more than it did. That is consistent, and it is worth knowing before wondering where a file went.
+
+The cost is real but modest at these settings. Over `/usr/share/doc`, `copyright` returns 2285 files exactly, 2286 at `1`, 2294 at `2` and 2426 at `3`. The ceiling is `3` because `4` returns 4826 — at four errors `color` matches `cat`, and the results stop being an answer. Out-of-range values are clamped rather than rejected, as `archive_depth` is.
+
+One asymmetry to expect: a **PDF** can be found by an approximate search, because ugrep reads it through `pdftotext`, but the PDF viewer's own search takes one literal string and has no approximate mode. Such a PDF opens and renders with **Prev** and **Next** dimmed and nothing marked — the same state a query with no plain word in it already produces.
 
 ## `open.command`
 

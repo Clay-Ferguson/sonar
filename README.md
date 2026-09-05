@@ -18,6 +18,7 @@ A desktop search utility: type a query, get every file under a folder whose *con
 - Every match highlighted in the preview, with Prev/Next and a counter
 - PDFs rendered in the window and searched in place
 - Optional search *inside* archives (`.zip`, `.tar.gz`, `.7z`, `.gz` …), up to three levels of nesting
+- Optional near-match searching, so `color` also finds `colour` — off by default
 - Include/exclude glob patterns and a configurable Open command
 
 ## Documentation

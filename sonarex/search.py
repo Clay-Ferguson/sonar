@@ -19,7 +19,7 @@ import subprocess
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
 from .archive import RESULT_FORMAT, SEPARATOR, Hit, member_glob
-from .config import search_depth, search_globs
+from .config import search_depth, search_fuzzy, search_globs
 
 # Exit statuses, confirmed against ugrep 7.5.0. The distinction that matters is
 # 1 vs 2: "nothing matched" is an ordinary outcome to report in the status
@@ -95,6 +95,13 @@ def build_argv(query: str, folder: str) -> list[str]:
     ugrep's ambiguous `archive.zip{member}`. With it off the argv is
     byte-for-byte what it has always been — the whole feature stays off the
     ordinary code path.
+
+    With Find near matches set, one more flag goes on: `--fuzzy`, which allows
+    that many characters of difference between the pattern and what it matches.
+    It applies to the whole matcher rather than to one kind of term, so quoted
+    phrases, unquoted regexes and negated terms alike become approximate. A 0
+    puts nothing on the argv at all — `--fuzzy=0` is an error to ugrep, not an
+    "off" — so an unset setting leaves this command line untouched too.
     """
     argv = ["ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files"]
     if shutil.which("pdftotext"):
@@ -104,6 +111,9 @@ def build_argv(query: str, folder: str) -> list[str]:
         argv.extend(
             ["-z", f"--zmax={depth}", f"--separator={SEPARATOR}", RESULT_FORMAT]
         )
+    fuzzy = search_fuzzy()
+    if fuzzy:
+        argv.append(f"--fuzzy={fuzzy}")
     argv.extend(search_globs())
     argv.extend(["--", query, folder])
     return argv
@@ -182,7 +192,7 @@ ARCHIVE_MATCH_FORMAT = "--format=%z%s%n %k %j%~"
 MATCH_TIMEOUT = 10
 
 
-def build_match_argv(query: str, hit: Hit, depth: int) -> list[str]:
+def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[str]:
     """The ugrep command line that reports where `query` matches inside one file.
 
     The query-shaping flags are exactly `build_argv`'s -i, -% and --files, so
@@ -210,6 +220,13 @@ def build_match_argv(query: str, hit: Hit, depth: int) -> list[str]:
     line. Line and column mean exactly what they did before — verified, `-z` on
     an ordinary file leaves the spans identical and merely prefixes an empty
     `%z`.
+
+    `fuzzy` is pinned the same way and for the same reason, with a quieter
+    failure: at 0 an approximate hit is simply not found again, so a file the
+    search plainly put on screen previews with nothing marked. ugrep reports
+    the approximate span itself — `%k` is still the character column and `%j`
+    still the text actually matched, `"clor"` rather than `"color"` — so
+    nothing below this has to know that the match was inexact.
     """
     argv = ["ugrep", "-i", "-%", "--files", "-o", "-u"]
     if depth:
@@ -226,6 +243,8 @@ def build_match_argv(query: str, hit: Hit, depth: int) -> list[str]:
             argv.extend(["-g", member_glob(hit.member, depth)])
     else:
         argv.append(MATCH_FORMAT)
+    if fuzzy:
+        argv.append(f"--fuzzy={fuzzy}")
     argv.extend(["--", query, hit.path])
     return argv
 
@@ -243,7 +262,7 @@ def _match_length(field: str) -> int:
 
 
 def match_spans(
-    query: str, hit: Hit, depth: int = 0
+    query: str, hit: Hit, depth: int = 0, fuzzy: int = 0
 ) -> dict[int, list[tuple[int, int]]]:
     """Where `query` matches in `hit`: 0-based line -> [(column, length)].
 
@@ -257,7 +276,7 @@ def match_spans(
     """
     try:
         completed = subprocess.run(
-            build_match_argv(query, hit, depth),
+            build_match_argv(query, hit, depth, fuzzy),
             capture_output=True,
             text=True,
             timeout=MATCH_TIMEOUT,

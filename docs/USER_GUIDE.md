@@ -15,6 +15,7 @@ This guide covers everything the window does. For the configuration file in deta
 - [The window at a glance](#the-window-at-a-glance)
 - [Running a search](#running-a-search)
 - [Query syntax](#query-syntax)
+- [Finding near matches](#finding-near-matches)
 - [The results list](#the-results-list)
 - [The preview pane](#the-preview-pane)
 - [Stepping through matches](#stepping-through-matches)
@@ -146,6 +147,51 @@ A query starting with `-` (say `-l`) is safe to type — it is passed as a query
 If ugrep rejects a query — an unbalanced parenthesis, a broken regex — Sonar shows the message it gave in a dialog, and the results list stays as it was.
 
 The same reference is available inside the app under **Options ▸ Query Syntax**.
+
+---
+
+## Finding near matches
+
+Everything above is exact: `color` finds `color` and not `colour`. Turn on **Find near matches** in **Options ▸ Settings** and a search also returns words spelled a little differently from what you typed.
+
+| Setting | `color` also finds |
+|---|---|
+| `Off — exact matches only` | nothing else |
+| `Close — 1 character different` | `colour`, `collor`, `clor` |
+| `Looser — 2 characters different` | `collour`, `culours` |
+| `Loosest — 3 characters different` | rather a lot |
+
+It is the setting to reach for when you are not sure how something was spelled — a name, a word that is written both ways, a file you know has a typo in it somewhere.
+
+### The first letter always has to be right
+
+`colour` finds `color`. **`xolor` finds nothing** — at any setting. A near match always has to *start* the same way as what you typed, so a mistake in the first letter is the one mistake this cannot forgive.
+
+This is also what keeps the feature usable. Without it, a two-letter query at `Looser` would match almost every word in every file; with it, `if` still finds `if` and not `of`.
+
+### It applies to the whole query
+
+Approximate matching is a property of the search, not of one kind of term, so every form in [Query syntax](#query-syntax) is widened at once:
+
+| Query | At `Close` |
+|---|---|
+| `color` | also `colour` |
+| `"color of"` | also `colour of` — a quoted phrase is approximate too |
+| `col(o\|ou)r` | also `collour` — the regex is widened on top of itself |
+| `cat -dog` | **excludes more**: a file containing `dogs` or `dig` is now left out too |
+
+That last row is the one worth remembering. A `NOT` or `-` term becomes approximate along with everything else, so it throws away more than it used to.
+
+### What it costs
+
+More results, and a slower search. Searching a folder of system documentation for a common word returned 2,285 files exactly, 2,286 at `Close`, 2,294 at `Looser` and 2,426 at `Loosest`; the search itself went from a twentieth of a second to about three quarters of one. `Close` is nearly free and is the setting to leave on if you want one on.
+
+Inside a file, the count grows faster than that — the same file that had 27 highlighted matches has around 160 at `Looser` — so the **1 of n** counter beside Prev/Next will read higher than you expect.
+
+### Two things it does not change
+
+- **PDFs are found but not marked.** A PDF can be returned by a near-match search, but the PDF viewer's own search is exact, so such a file opens and renders with Prev and Next dimmed and nothing highlighted. That is the same thing that happens with a query the viewer cannot search for at all.
+- **The results you already have.** The setting is fixed for the results on screen, as the archive depth is. Changing it takes effect from the next search.
 
 ---
 
@@ -315,7 +361,7 @@ Neither one affects a search in progress. A saved setting applies from the next 
 
 ## The Settings dialog
 
-**Options ▸ Settings.** Five settings, saved to a YAML file you can also edit by hand (see [CONFIG.md](CONFIG.md)). **Save** writes them and closes; **Cancel** discards. Enter in the dialog saves.
+**Options ▸ Settings.** Six settings, saved to a YAML file you can also edit by hand (see [CONFIG.md](CONFIG.md)). **Save** writes them and closes; **Cancel** discards. Enter in the dialog saves.
 
 ### Include only these files (empty = search everything)
 
@@ -350,6 +396,19 @@ The checkbox described in [Searching inside archives](#searching-inside-archives
 ### How deep to look inside them
 
 The 1-to-3 dropdown, also described above. It is dimmed while the checkbox is off, but it keeps its value — turning archive searching off and back on does not lose the depth you picked.
+
+### Find near matches
+
+The dropdown described in [Finding near matches](#finding-near-matches). **Off** by default, which is exact matching and is also the command line Sonar has always run — nothing is passed to the search engine at all until you raise it.
+
+| Setting | Meaning |
+|---|---|
+| `Off — exact matches only` | only what you typed |
+| `Close — 1 character different` | one letter may be wrong, missing or extra |
+| `Looser — 2 characters different` | two may be |
+| `Loosest — 3 characters different` | three may be; expect noise |
+
+Remember the first-letter rule and the effect on `NOT` terms, both covered above.
 
 ### The Open command
 

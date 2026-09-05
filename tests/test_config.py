@@ -14,10 +14,12 @@ from sonarex import config
 
 
 def test_saving_round_trips(conf):
-    conf(archives=True, depth=2, included=["*.md"], excluded=["*/build/*"])
+    conf(archives=True, depth=2, included=["*.md"], excluded=["*/build/*"], fuzzy=2)
     settings, error = config.load_settings()
     assert error is None
-    assert settings == config.Settings(["*.md"], ["*/build/*"], True, 2, "/bin/true")
+    assert settings == config.Settings(
+        ["*.md"], ["*/build/*"], True, 2, "/bin/true", 2
+    )
 
 
 def test_saving_rewrites_the_comments(conf):
@@ -27,6 +29,7 @@ def test_saving_rewrites_the_comments(conf):
     text = open(config.CONFIG_PATH).read()
     assert "# Search inside .zip" in text
     assert "# How many levels deep to look" in text
+    assert "# Find near matches" in text
 
 
 def test_unknown_keys_are_carried_through(conf):
@@ -47,6 +50,7 @@ def test_unknown_keys_are_carried_through(conf):
     # "known" sets gets written twice: once by name, once as an unknown extra.
     assert text.count("archives:") == 1
     assert text.count("archive_depth:") == 1
+    assert text.count("fuzzy:") == 1
 
 
 def test_depth_accessor_folds_the_two_keys(conf):
@@ -81,11 +85,37 @@ def test_bad_values_degrade_to_a_default(conf, body, expected):
     assert config.search_depth() == expected
 
 
+def test_fuzzy_accessor_reads_the_one_key(conf):
+    """One key, not the pair the depth folds: "off" is a position in the same
+    dropdown, so there is no checkbox whose value has to be remembered."""
+    conf(fuzzy=2)
+    assert config.search_fuzzy() == 2
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        pytest.param("search:\n  fuzzy: 99\n", config.MAX_FUZZY, id="clamped-high"),
+        pytest.param("search:\n  fuzzy: -1\n", 0, id="clamped-low"),
+        # As with archive_depth: bool subclasses int, so `true` must not read
+        # as the number 1 and silently turn approximate matching on.
+        pytest.param("search:\n  fuzzy: true\n", 0, id="bool-fuzzy"),
+        pytest.param('search:\n  fuzzy: "2"\n', 0, id="string-fuzzy"),
+        pytest.param("", 0, id="empty-file"),
+    ],
+)
+def test_bad_fuzzy_values_degrade_to_off(conf, body, expected):
+    conf()
+    open(config.CONFIG_PATH, "w").write(body)
+    assert config.search_fuzzy() == expected
+
+
 def test_a_missing_file_is_not_an_error(conf, tmp_path):
     config.CONFIG_PATH = str(tmp_path / "does-not-exist.yaml")
     settings, error = config.load_settings()
     assert error is None  # absent is ordinary; unreadable is what gets reported
     assert config.search_depth() == 0
+    assert config.search_fuzzy() == 0
 
 
 def test_broken_yaml_is_reported_to_the_dialog(conf):

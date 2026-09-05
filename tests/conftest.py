@@ -218,6 +218,39 @@ def colon_tree(tmp_path_factory):
     return str(root)
 
 
+# Enough filler around the zipped member to make deflate actually smaller than
+# the input. It matters: a small member is *stored* even when deflate is asked
+# for, and stored bytes match a raw byte search with -z off — which would put
+# the archive into the plain-file result sets these tests pin exactly. It
+# contains no "c", so it cannot itself be an approximate hit for "color".
+FUZZY_PADDING = "padding line so this file will deflate\n" * 40
+
+
+@pytest.fixture(scope="session")
+def fuzzy_tree(tmp_path_factory):
+    """Four spellings of one word, at known edit distances from "color".
+
+    The distances are the whole point, so they are spelled out rather than
+    left to be counted: `colour` is one edit away (an inserted u), `collour`
+    is two (an inserted l as well). A search for `color` therefore returns a
+    different, exactly known set at every setting, which is what lets these
+    tests assert on the set rather than on "more rows than before".
+
+    `exact.txt` holding `color` is also what makes the first-character rule
+    testable: `dolor` is one edit from it too, and must still never match.
+    """
+    root = tmp_path_factory.mktemp("fuzzy")
+    (root / "exact.txt").write_bytes(b"the color of the sky\n")
+    (root / "near.txt").write_bytes(b"the colour of the sea\n")
+    (root / "far.txt").write_bytes(b"a collour of paint\n")
+    _write_zip(
+        root / "shades.zip",
+        {"inner/tint.txt": (FUZZY_PADDING + "a colour swatch inside\n").encode()},
+        compress=zipfile.ZIP_DEFLATED,
+    )
+    return str(root)
+
+
 @pytest.fixture(scope="session")
 def pdf_tree(tmp_path_factory):
     """A PDF loose on disk and the same PDF inside a zip.
@@ -243,10 +276,17 @@ def conf(tmp_path):
     original = config.CONFIG_PATH
     config.CONFIG_PATH = str(tmp_path / "sonarex-config.yaml")
 
-    def write(archives=True, depth=1, included=(), excluded=(), open_command="/bin/true"):
+    def write(
+        archives=True,
+        depth=1,
+        included=(),
+        excluded=(),
+        open_command="/bin/true",
+        fuzzy=0,
+    ):
         config.save_settings(
             config.Settings(
-                list(included), list(excluded), archives, depth, open_command
+                list(included), list(excluded), archives, depth, open_command, fuzzy
             )
         )
         return config.CONFIG_PATH

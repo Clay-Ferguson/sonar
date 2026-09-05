@@ -33,7 +33,7 @@ from windowchrome import close_markdown_windows
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
-from .config import search_depth
+from .config import search_depth, search_fuzzy
 from .help import show_query_syntax, show_user_guide
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
@@ -135,6 +135,11 @@ class MainWindow(QMainWindow):
         # nothing can open, and a member found three levels down can only be
         # re-opened at the depth that reached it.
         self._search_depth = 0
+        # How many characters a match may differ by, 0 when off. Pinned for the
+        # same reason as the depth and with the same consequence: the preview
+        # re-runs ugrep to find out where to paint, and a run without the
+        # setting that found the file marks nothing in it.
+        self._search_fuzzy = 0
         # The current file's matches, flattened out of the spans dict and put in
         # reading order, plus where Prev/Next is parked in that list. A flat
         # list rather than the dict because stepping is what it is for: the dict
@@ -464,6 +469,7 @@ class MainWindow(QMainWindow):
         self._search_root = folder
         self._search_query = query
         self._search_depth = search_depth()
+        self._search_fuzzy = search_fuzzy()
         self._set_title("Searching…")
         self._runner.start(query, folder)
 
@@ -780,7 +786,9 @@ class MainWindow(QMainWindow):
         spans = (
             {}
             if is_notice or not self._search_query
-            else match_spans(self._search_query, hit, self._search_depth)
+            else match_spans(
+                self._search_query, hit, self._search_depth, self._search_fuzzy
+            )
         )
         # Before setPlainText, not after: replacing the text is itself what
         # makes Qt run the highlighter over the document, so spans set first
