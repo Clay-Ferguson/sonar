@@ -25,6 +25,20 @@ def select(window, label):
     raise AssertionError(f"no row {label!r} in {labels(window)}")
 
 
+def status(window) -> str:
+    """What the status bar along the bottom is saying.
+
+    The window title used to carry this and is now only the app's name, so a
+    test asking "what did the search report" reads it here.
+    """
+    return window._status_message.text()
+
+
+def searching(window) -> bool:
+    """Whether the status bar is in its searching state — green, spinner on."""
+    return window._busy
+
+
 def highlighted(window, current_only=False) -> list[str]:
     """The highlighted words in the preview, in reading order.
 

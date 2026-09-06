@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QStyle,
 )
 
-from windowchrome import ChromeTheme, body_window_color
+from windowchrome import ChromeTheme, body_text_color, body_window_color
 
 from . import UI_POINT_SIZE
 
@@ -443,6 +443,76 @@ def menu_style() -> str:
         QMenu::item:selected {{
             background: palette(highlight);
             color: palette(highlighted-text);
+        }}
+    """
+
+
+# The status bar's busy colors. Pinned rather than derived, and pinned as a
+# *pair* for the same reason the match highlight is: the green has to read as
+# green on a light desktop and on a dark one, so the text on top of it cannot
+# be left to inherit a theme foreground that may be near-black or near-white.
+# A muted green in the same family as PRIMARY_BUTTON_BG — the bar is saying
+# "the thing the green button started is still running", not raising an alarm.
+STATUS_BUSY_BG = "#3f6b39"
+STATUS_BUSY_FG = "#f0f2ef"
+
+# Room around the status line, as left/top/right/bottom for
+# `setContentsMargins`. Not a stylesheet `padding`, which is the obvious way
+# to write it and does **nothing** here: measured, a QStatusBar with
+# `padding: 6px 10px` is the same 22px tall as one without it, because the bar
+# lays its widgets out itself rather than through the box model. The margins
+# do work (22px -> 34px) and survive both a resize and the stylesheet swap
+# `_set_busy` does on every search, which is the other half of what was
+# checked.
+STATUS_BAR_MARGINS = (10, 6, 10, 6)
+
+# The line separating the bar from the window above it. Pinned, and the same
+# gray as MENU_BORDER, for the same reason that one is: it has to read against
+# a light desktop surface and a dark one, and here also against the busy green,
+# so it can be derived from neither the palette nor the bar's own background.
+# Top only — the other three edges are the window's frame, which the decoration
+# already draws.
+STATUS_BAR_BORDER = "1px solid #9a9a9a"
+
+
+def status_style(busy: bool) -> str:
+    """Qt stylesheet for the status bar, in its idle or its searching state.
+
+    Colors and the border only — the room around the text is
+    `STATUS_BAR_MARGINS`, applied as contents margins, because a stylesheet
+    `padding` on a QStatusBar is silently ignored. See the note on that
+    constant.
+
+    Idle takes `body_window_color()` rather than `palette(window)`: windowchrome
+    has repurposed the Window role for the title bar, so naming the role here
+    would paint the bar title-bar blue — the same trap `menu_style()` documents.
+
+    Both states carry the same top border: the bar is a strip of the window
+    rather than a widget sitting on it, so without a line it runs straight into
+    the pane above — visibly so when idle, where its background *is* the window
+    color. Being the one thing that does not change between the two states, it
+    also keeps the bar's outline steady as the green comes and goes.
+
+    Busy takes the green, background and foreground together, and the labels
+    are named explicitly because a stylesheet set on the bar reaches its
+    children: without the QLabel rule the spinner and the message would keep
+    whatever foreground the palette last handed them, which on a light theme
+    is near-black on the green.
+    """
+    if busy:
+        background, foreground = STATUS_BUSY_BG, STATUS_BUSY_FG
+    else:
+        background = body_window_color().name()
+        foreground = body_text_color().name()
+    return f"""
+        QStatusBar {{
+            background: {background};
+            border-top: {STATUS_BAR_BORDER};
+        }}
+        QStatusBar::item {{ border: none; }}
+        QStatusBar QLabel {{
+            background: transparent;
+            color: {foreground};
         }}
     """
 

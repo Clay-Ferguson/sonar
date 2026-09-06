@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QStatusBar,
     QStyle,
     QVBoxLayout,
     QWidget,
@@ -54,6 +55,7 @@ from .style import (
     PRIMARY_BUTTON_BG,
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
+    STATUS_BAR_MARGINS,
     action_button,
     enlarge_checkbox,
     icon_button,
@@ -62,6 +64,7 @@ from .style import (
     results_list_style,
     selection_button_bg,
     splitter_style,
+    status_style,
 )
 from .viewer import (
     cleanup_temp_files,
@@ -106,6 +109,29 @@ FOLDER_TIP_ARCHIVED = "Show the folder holding the archive in the file manager"
 SPLIT_LIST = 2
 SPLIT_PREVIEW = 3
 
+# The status bar's activity indicator, and how fast it turns. Text rather than
+# an animated image: Qt ships no spinner widget and no animated icon in the
+# standard pixmaps, and a QMovie would mean carrying a GIF as an asset for one
+# character's worth of motion. These four glyphs in the monospace font the
+# results list already uses read as one rotating bar and take a fixed width,
+# so nothing beside them shifts as it turns.
+#
+# 120ms is fast enough to look continuous and slow enough that a search
+# finishing in one frame does not flash. The timer is the only thing that says
+# a search over a large tree yielding nothing yet is still running.
+SPINNER_FRAMES = "|/-\\"
+SPINNER_INTERVAL_MS = 120
+
+# What the bar says before the first search of a session. Something rather
+# than nothing: an empty strip along the bottom of the window reads as a
+# rendering fault, and "Ready" also shows where a search will report itself.
+STATUS_READY = "Ready"
+
+# And what it says when a search went wrong. The detail is in the dialog that
+# comes with it; this is only what the bar is left showing behind it, in place
+# of numbers that no longer mean anything.
+STATUS_FAILED = "Search failed"
+
 
 class MainWindow(QMainWindow):
     def __init__(self, folder: str) -> None:
@@ -117,6 +143,10 @@ class MainWindow(QMainWindow):
         self._runner.matchFound.connect(self._on_match)
         self._runner.finished.connect(self._on_search_finished)
         self._match_count = 0
+        # Where the spinner is in its cycle, and whether it is turning at all.
+        # The flag is what makes `_set_busy` idempotent — see the note there.
+        self._spinner_frame = 0
+        self._busy = False
         # The folder the current results actually came from, captured when the
         # search starts. Deliberately not read back from the folder row: that
         # stays editable while results are on screen, and a row's path must
@@ -363,6 +393,8 @@ class MainWindow(QMainWindow):
         splitter.setSizes([SPLIT_LIST * 100, SPLIT_PREVIEW * 100])
         layout.addWidget(splitter, 1)
 
+        self._build_status_bar()
+
         self.query_edit.setFocus()
 
     # -- menus --------------------------------------------------------------
@@ -410,17 +442,105 @@ class MainWindow(QMainWindow):
         guide_action.triggered.connect(lambda: show_user_guide(self))
         options.addAction(guide_action)
 
-    # -- reporting ----------------------------------------------------------
+    # -- the status bar -----------------------------------------------------
 
-    def _set_title(self, note: str = "") -> None:
-        """Put `note` in the title bar, or clear it back to the app name.
+    def _build_status_bar(self) -> None:
+        """The line along the bottom: an activity indicator and a message.
 
-        With no status bar, the title is where a search says how it is going.
-        It costs no layout space, and it is the one piece of window furniture
-        that is always visible — including when Sonar is a background window
-        someone is glancing at from another app.
+        A real `QStatusBar` rather than one more row in the central layout,
+        because the menu items already carry `setStatusTip` text and this is
+        the widget Qt shows it in — hovering Options ▸ Settings says what it
+        does, for free, the moment the bar exists. The size grip is off: the
+        window is resizable from any edge already, and the grip reads as a
+        second thing in a bar that has one.
+
+        The spinner and the message are two labels rather than one so the
+        message cannot shift sideways as the spinner turns, and the spinner's
+        width is pinned for the same reason — the glyphs are monospaced, but
+        an empty spinner between searches would otherwise collapse to nothing
+        and drag the message left with it.
         """
-        self.setWindowTitle(f"{APP_NAME} — {note}" if note else APP_NAME)
+        self._status_spinner = QLabel()
+        self._status_spinner.setFont(mono_font())
+        self._status_spinner.setFixedWidth(
+            self._status_spinner.fontMetrics().horizontalAdvance("M")
+        )
+        self._status_message = QLabel(STATUS_READY)
+
+        bar = QStatusBar()
+        bar.setSizeGripEnabled(False)
+        # Contents margins rather than a stylesheet `padding`, which a
+        # QStatusBar ignores outright — see STATUS_BAR_MARGINS. Set once here:
+        # they survive the stylesheet `_set_busy` swaps on every search.
+        bar.setContentsMargins(*STATUS_BAR_MARGINS)
+        bar.addWidget(self._status_spinner)
+        bar.addWidget(self._status_message, 1)
+        self.setStatusBar(bar)
+        # Directly, not through `_set_busy`: the flag already says idle, so
+        # that call is the no-op the guard is there to make it.
+        bar.setStyleSheet(status_style(False))
+
+        # Started and stopped by `_set_busy`, never left running: it is a
+        # repaint of two labels every 120ms, which is nothing next to a search
+        # and is still not worth doing while the window sits idle.
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setInterval(SPINNER_INTERVAL_MS)
+        self._spinner_timer.timeout.connect(self._tick_spinner)
+
+    def _set_busy(self, busy: bool) -> None:
+        """Turn the searching look on or off: the green, and the spinner.
+
+        The color is the half of this that can be read without reading, which
+        is the point of it — a glance at the bottom of the window says whether
+        the thing is still working. The spinner is the half that says it is
+        still working *now*, which the color alone cannot: a search over a
+        large tree that has found nothing yet leaves every other part of the
+        window exactly as it was before Search was pressed.
+        """
+        # Idempotent, and it has to be: `_on_match` sets the status on every
+        # hit, and re-entering the busy state would restart the timer and reset
+        # the frame each time — the spinner would sit frozen on its first glyph
+        # for exactly the search that is streaming results fastest.
+        if busy == self._busy:
+            return
+        self._busy = busy
+        self.statusBar().setStyleSheet(status_style(busy))
+        if busy:
+            self._spinner_frame = 0
+            self._status_spinner.setText(SPINNER_FRAMES[0])
+            self._spinner_timer.start()
+        else:
+            self._spinner_timer.stop()
+            self._status_spinner.clear()
+
+    def _tick_spinner(self) -> None:
+        self._spinner_frame = (self._spinner_frame + 1) % len(SPINNER_FRAMES)
+        self._status_spinner.setText(SPINNER_FRAMES[self._spinner_frame])
+
+    def _set_status(self, message: str, busy: bool = False) -> None:
+        """Put `message` in the status bar, in one of its two states.
+
+        This is where a search says how it is going — the title bar is the
+        app's name and nothing else. A search's numbers belong at the bottom
+        of the window beside the results they describe, not in a strip the
+        window manager may truncate, ellipsize or refuse to widen.
+        """
+        self._status_message.setText(message)
+        self._set_busy(busy)
+
+    def _searched_note(self) -> str:
+        """" — 1,234 files searched" — or nothing, when ugrep did not say.
+
+        The count comes from `--stats`, which ugrep prints after the last hit,
+        so it is only ever known once the search has finished. A search that
+        failed to start never produces it, and 0 there means "unknown" rather
+        than "none": claiming zero files were searched would be a worse answer
+        than leaving the clause out.
+        """
+        searched = self._runner.files_searched()
+        return f" — {searched:,} files searched" if searched else ""
+
+    # -- reporting ----------------------------------------------------------
 
     def _report_problem(self, message: str) -> None:
         """Show something that actually went wrong.
@@ -469,7 +589,7 @@ class MainWindow(QMainWindow):
         self._search_query = query
         self._search_depth = search_depth()
         self._search_fuzzy = search_fuzzy()
-        self._set_title("Searching…")
+        self._set_status(f"Searching {folder}…", busy=True)
         self._runner.start(query, folder)
 
     # -- rows ---------------------------------------------------------------
@@ -535,9 +655,12 @@ class MainWindow(QMainWindow):
     def _on_match(self, line: str) -> None:
         self.results.addItem(self._make_item(parse_result_line(line)))
         self._match_count += 1
-        # Cheap enough to do per hit, and it is the only sign the search is
-        # still making progress on a long run.
-        self._set_title(f"Searching… {self._match_count} files")
+        # Cheap enough to do per hit, and it is what turns the spinner from
+        # "still running" into "still finding things".
+        self._set_status(
+            f"Searching {self._search_root}… {self._match_count:,} found",
+            busy=True,
+        )
 
     def _on_search_finished(self, exit_code: int, stderr: str) -> None:
         """Report a real failure; otherwise settle the list and the title.
@@ -565,21 +688,24 @@ class MainWindow(QMainWindow):
             if not problem and not stderr.strip():
                 problem = f"ugrep exited with status {exit_code}."
         if problem:
-            self._set_title()
+            self._set_status(STATUS_FAILED)
             self._report_problem(problem)
             return
 
         if not self._match_count:
-            self._set_title("No matches")
+            self._set_status(
+                f"No matches{self._searched_note()} in {self._search_root}"
+            )
             return
 
         self._sort_by_mtime()
         # The root is named because the rows no longer carry it, and the folder
         # row above is not proof of it — that field stays editable once a
         # search has finished.
-        self._set_title(
-            f"{self._match_count} file{'' if self._match_count == 1 else 's'}"
-            f" in {self._search_root}"
+        self._set_status(
+            f"{self._match_count:,} file"
+            f"{'' if self._match_count == 1 else 's'} found"
+            f"{self._searched_note()} in {self._search_root}"
         )
 
     def _sort_by_mtime(self) -> None:
@@ -891,6 +1017,9 @@ class MainWindow(QMainWindow):
         # Without this a search still running when the window closes leaves an
         # orphaned ugrep walking the tree.
         self._runner.stop()
+        # And the spinner, which would otherwise go on repainting two labels
+        # while the window is being torn down around them.
+        self._spinner_timer.stop()
         # And the PDF, for the same reason and a sharper consequence: the
         # search model fills its pages in lazily, so closing the window while
         # one is still being searched leaves pdfium walking a document Qt is

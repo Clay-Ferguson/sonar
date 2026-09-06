@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from helpers import highlighted, labels, nav, select
+from helpers import highlighted, labels, nav, searching, select, status
 from sonarex import viewer
 from sonarex.archive import Hit
 from sonarex.search import build_argv
@@ -52,11 +52,14 @@ ARCHIVED_ROWS = sorted(
 
 def test_argv_is_unchanged_when_archives_are_off(conf):
     """The regression guard for every existing user: with the setting off, the
-    command line is byte-for-byte the one this app always built."""
+    command line is what this app always built, plus the `--stats` the status
+    bar reads its "files searched" count out of. Nothing about the search
+    itself changed — the flag adds a block of prose after the last hit, which
+    `SearchRunner` drops rather than listing."""
     conf(archives=False)
     assert build_argv("q", "/f") == [
         "ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files",
-        "--filter=pdf:pdftotext -q % -", "--", "q", "/f",
+        "--filter=pdf:pdftotext -q % -", "--stats", "--", "q", "/f",
     ]
 
 
@@ -109,8 +112,8 @@ def test_unreadable_archives_are_skipped_in_silence(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     assert not any("locked" in row for row in labels(window))
-    # The title is a result count, which is what says no dialog was raised.
-    assert "files in" in window.windowTitle()
+    # The status bar is a result count, which is what says no dialog was raised.
+    assert "files found" in status(window)
 
 
 def test_a_row_carries_its_hit_and_a_two_line_tooltip(conf, tree, search):
@@ -190,7 +193,7 @@ def test_switching_rows_restarts_the_count(conf, tree, search):
 def test_a_fresh_search_leaves_the_nav_dim(conf, tree, search):
     conf(archives=True)
     window = search(tree, "zzzznothingzzz")
-    assert window.windowTitle().endswith("No matches")
+    assert status(window).startswith("No matches")
     assert nav(window) == (False, "")
 
 
@@ -234,7 +237,7 @@ def test_a_skipped_file_is_not_an_error_dialog(conf, guarded_tree, search, dialo
 
     assert dialogs == []
     assert labels(window) == ["found.txt"]
-    assert "1 file in" in window.windowTitle()
+    assert "1 file found" in status(window)
 
 
 @needs_permissions
@@ -247,7 +250,7 @@ def test_a_fruitless_search_that_complained_says_no_matches(
     window = search(guarded_tree, "zzzznothingzzz")
 
     assert dialogs == []
-    assert window.windowTitle().endswith("No matches")
+    assert status(window).startswith("No matches")
     assert nav(window) == (False, "")
 
 
@@ -270,7 +273,7 @@ def test_an_encrypted_archive_never_raises_a_dialog(conf, tree, search, dialogs)
         2, "ugrep: cannot decompress /t/locked.zip: zip data is encrypted\n"
     )
     assert dialogs == []
-    assert f"{found} files in" in window.windowTitle()
+    assert f"{found} files found" in status(window)
 
 
 def test_an_unreadable_archive_and_no_matches_says_no_matches(conf, tree, search, dialogs):
@@ -285,7 +288,7 @@ def test_an_unreadable_archive_and_no_matches_says_no_matches(conf, tree, search
         2, "ugrep: cannot decompress /t/locked.zip: zip data is encrypted\n"
     )
     assert dialogs == []
-    assert window.windowTitle().endswith("No matches")
+    assert status(window).startswith("No matches")
 
 
 def test_an_unexplained_failure_is_still_reported(conf, tree, search, dialogs):
@@ -309,7 +312,10 @@ def test_a_real_error_still_reaches_the_user(conf, guarded_tree, search, dialogs
 
     assert len(dialogs) == 1
     assert "error" in dialogs[0][1]
+    # The title bar is the app's name and stays that way, whatever happens.
     assert window.windowTitle() == "Sonar"
+    assert status(window) == "Search failed"
+    assert not searching(window)
 
 
 # -- Open ------------------------------------------------------------------

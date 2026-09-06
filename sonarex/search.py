@@ -12,6 +12,7 @@ straightforward here.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -102,6 +103,12 @@ def build_argv(query: str, folder: str) -> list[str]:
     phrases, unquoted regexes and negated terms alike become approximate. A 0
     puts nothing on the argv at all — `--fuzzy=0` is an error to ugrep, not an
     "off" — so an unset setting leaves this command line untouched too.
+
+    `--stats` is what makes the status bar able to say how many files were
+    *searched* rather than only how many matched, which nothing else on the
+    argv reports. It costs a short block of prose on stdout after the last
+    hit, and `SearchRunner` is what tells that block from a result (see
+    `STATS_FILES`); it goes last so the flags before it keep their positions.
     """
     argv = ["ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files"]
     if shutil.which("pdftotext"):
@@ -115,6 +122,7 @@ def build_argv(query: str, folder: str) -> list[str]:
     if fuzzy:
         argv.append(f"--fuzzy={fuzzy}")
     argv.extend(search_globs())
+    argv.append("--stats")
     argv.extend(["--", query, folder])
     return argv
 
@@ -310,6 +318,14 @@ def match_spans(
     return spans
 
 
+# The one line of `--stats` output this app wants: "Searched 1234 files in 56
+# directories in 0.1 seconds ...". Anchored, and only ever tried against a line
+# that does not begin with '/', because the folder is passed absolute and so
+# every path ugrep prints is too — a file honestly called "Searched 3 files"
+# still arrives with its directory in front of it.
+STATS_FILES = re.compile(r"^Searched ([\d,]+) files?\b")
+
+
 class SearchRunner(QObject):
     """One ugrep process at a time, reporting hits as they arrive.
 
@@ -317,6 +333,11 @@ class SearchRunner(QObject):
     code and whatever it wrote to stderr. A `start()` while a search is still
     running abandons that search first (see `stop`), so pressing Search
     repeatedly can never interleave two result sets in the list.
+
+    `files_searched()` is the other half of what the status bar reports, and
+    is a plain accessor rather than a third signal or a wider `finished`: it
+    arrives exactly once, at the end, so there is nothing to be notified of
+    that `finished` does not already say.
     """
 
     matchFound = pyqtSignal(str)
@@ -327,6 +348,21 @@ class SearchRunner(QObject):
         self._process: QProcess | None = None
         self._stdout_tail = ""  # an incomplete last line, held for the next read
         self._stderr = ""
+        self._files_searched = 0
+        # Everything ugrep prints after its "Searched n files" line is the rest
+        # of the --stats block: the selections and constraints it applied, in
+        # prose. None of it is a result, and this is what stops it being added
+        # to the list as one.
+        self._in_stats = False
+
+    def files_searched(self) -> int:
+        """How many files the last search actually looked at, 0 if unknown.
+
+        0 is what a search that failed to start, or was superseded, or ran
+        before `--stats` produced anything, honestly reports — the caller
+        leaves the number out of the status line rather than claiming zero.
+        """
+        return self._files_searched
 
     def is_running(self) -> bool:
         return self._process is not None
@@ -347,6 +383,8 @@ class SearchRunner(QObject):
         process.finished.connect(self._on_finished)
         process.errorOccurred.connect(self._on_error)
         self._process = process
+        self._files_searched = 0
+        self._in_stats = False
 
         argv = build_argv(query, folder)
         process.start(argv[0], argv[1:])
@@ -388,8 +426,31 @@ class SearchRunner(QObject):
         lines = text.split("\n")
         self._stdout_tail = lines.pop()
         for line in lines:
-            if line:
-                self.matchFound.emit(line)
+            self._take_line(line)
+
+    def _take_line(self, line: str) -> None:
+        """One whole line of ugrep's stdout: a hit, the file count, or debris.
+
+        `--stats` writes its block to stdout, after the last hit, so this is
+        where a result is told from a sentence about the search. The test is
+        deliberately one-way and sticky: a line beginning with '/' is a hit
+        (every path ugrep prints is absolute, because the folder it was given
+        was), and the first line that both fails that and matches
+        `STATS_FILES` puts this into the stats block for the rest of the run.
+        Nothing after it can be a result — ugrep prints the block last —
+        which is what keeps its prose out of the results list.
+        """
+        if not line:
+            return
+        if not self._in_stats and not line.startswith("/"):
+            found = STATS_FILES.match(line)
+            if found:
+                self._in_stats = True
+                self._files_searched = int(found.group(1).replace(",", ""))
+                return
+        if self._in_stats:
+            return
+        self.matchFound.emit(line)
 
     def _read_stderr(self) -> None:
         if self._process is None:
@@ -415,7 +476,7 @@ class SearchRunner(QObject):
         # ugrep does not newline-terminate under every combination of flags, so
         # a final partial line is a real result rather than debris.
         if self._stdout_tail:
-            self.matchFound.emit(self._stdout_tail)
+            self._take_line(self._stdout_tail)
             self._stdout_tail = ""
         self._process = None
         if status is QProcess.ExitStatus.CrashExit:

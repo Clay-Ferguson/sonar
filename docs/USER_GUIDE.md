@@ -89,7 +89,8 @@ removes the desktop entry and the icons again. Your configuration file is left a
 - **Results list** (left) — one row per matching file, newest first.
 - **Preview pane** (right) — the selected file, read-only.
 - **Control bar** (under the preview) — **Open**, the folder button, **Prev**, **Next**, the match counter, and the **Word Wrap** checkbox.
-- **Title bar** — this is where Sonar reports on the search. There is no status bar at the bottom of the window; the title says `Sonar — Searching… 42 files` while a search runs and `Sonar — 137 files in /home/you/projects` when it finishes.
+- **Status bar** (along the bottom) — where Sonar reports on the search. It turns **green** and shows a small turning `|/-\` indicator while a search is running, so you can tell it is working even before it has found anything. When the search finishes it goes back to the window color and says how many files matched, how many were searched, and where. It is also where the **Options** menu items describe themselves as you hover over them.
+- **Title bar** — just `Sonar`. The search's numbers live in the status bar, not up here.
 
 The divider between the two panes is draggable — grab it and give whichever side you are reading more room.
 
@@ -101,11 +102,11 @@ The divider between the two panes is draggable — grab it and give whichever si
 2. **Type a query** in the **Search** row. See [Query syntax](#query-syntax) below.
 3. **Press Enter** — from either field — or click **Search**.
 
-Results appear in the left pane **as they are found**, so a long search is useful before it finishes. The title bar counts them up as they arrive.
+Results appear in the left pane **as they are found**, so a long search is useful before it finishes. The status bar counts them up as they arrive.
 
 When the search finishes, the list re-sorts itself so the **most recently modified files come first**. That reordering can only happen at the end: files are found in directory order, and the newest one may turn up last. If a file was deleted while the search was running, its row is dropped at this point.
 
-The folder row stays editable after a search, which is why the finished title names the folder the results actually came from.
+The folder row stays editable after a search, which is why the finished status line names the folder the results actually came from.
 
 Pressing **Search** again while a search is running abandons the first one cleanly and starts over — the two result sets never mix.
 
@@ -474,15 +475,18 @@ Prev and Next currently have no keyboard shortcut — use the buttons.
 
 ## Messages you may see
 
-**In the title bar:**
+**In the status bar:**
 
-| Title | Meaning |
+| Message | Meaning |
 |---|---|
-| `Sonar` | idle — no search has run yet |
-| `Sonar — Searching…` | a search has just started |
-| `Sonar — Searching… 42 files` | still running; 42 hits so far |
-| `Sonar — No matches` | the search finished and found nothing |
-| `Sonar — 137 files in /path` | finished, sorted, and this is where they came from |
+| `Ready` | idle — no search has run yet |
+| `Searching /path…` | a search has just started; the bar is green and the indicator is turning |
+| `Searching /path… 42 found` | still running; 42 hits so far |
+| `No matches — 8,214 files searched in /path` | it finished and found nothing; this is how much it looked at |
+| `137 files found — 8,214 files searched in /path` | finished, sorted, and this is where they came from |
+| `Search failed` | something went wrong; the dialog beside it says what |
+
+The "files searched" count comes from ugrep itself and is only known once the search has finished, which is why it appears at the end rather than climbing alongside the hits.
 
 **In dialogs:**
 
@@ -516,7 +520,7 @@ Prev and Next currently have no keyboard shortcut — use the buttons.
 
 **Edits I made to a file from an archive did not stick.** They cannot — Open extracts a **read-only copy** for archive members, and the copy is deleted when Sonar closes. Extract the archive yourself if you need to edit its contents.
 
-**Results seem to be in no particular order.** They are in the order they were found until the search *finishes*, at which point they re-sort newest-first. Wait for the title bar to stop counting.
+**Results seem to be in no particular order.** They are in the order they were found until the search *finishes*, at which point they re-sort newest-first. Wait for the status bar to stop being green.
 
 **My settings changes did nothing.** They apply the next time the setting is used — the next **Search** press, or the next **Open** click. Nothing needs restarting.
 
