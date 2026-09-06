@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from windowchrome import apply_scrollbars
 
 from . import APP_NAME
 from .archive import MAX_DEPTH
@@ -49,7 +50,6 @@ from .style import (
     SECONDARY_BUTTON_BG,
     action_button,
     action_button_size,
-    apply_scrollbars,
     enlarge_checkbox,
     mono_font,
 )

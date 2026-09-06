@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from windowchrome import close_markdown_windows
+from windowchrome import apply_scrollbars, close_markdown_windows
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
@@ -55,7 +55,6 @@ from .style import (
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
     action_button,
-    apply_scrollbars,
     enlarge_checkbox,
     icon_button,
     menu_style,

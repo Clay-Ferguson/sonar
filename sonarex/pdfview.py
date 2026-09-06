@@ -31,7 +31,7 @@ try:
 except ImportError:  # pragma: no cover - depends on how PyQt6 was installed
     PDF_AVAILABLE = False
 
-from .style import apply_scrollbars
+from windowchrome import apply_scrollbars
 
 # The gap between pages in the continuous scroll, in pixels. Qt's default is
 # 3, which reads as a seam rather than a page break.

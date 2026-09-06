@@ -15,10 +15,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import QWidget
-from windowchrome import MarkdownDialog, show_markdown
+from windowchrome import MarkdownDialog, apply_scrollbars, show_markdown
 
 from . import APP_NAME
-from .style import action_button, apply_scrollbars
+from .style import action_button
 
 # `docs/` sits beside the package, not inside it. That is safe rather than
 # lucky: `pyproject.toml` sets `package = false` and `start.sh` runs the app

@@ -1,4 +1,4 @@
-"""Shared look: the button styling, the scroll bars, the palette, the font.
+"""Shared look: the button styling, the palette, the font.
 
 Extracted from `window.py` so a dialog can match the main window's controls
 without importing it — `window` opens the dialogs, so a dialog importing
@@ -122,14 +122,6 @@ SPLITTER_HANDLE_WIDTH = 10
 # as a lighter()/darker() percentage.
 SPLITTER_CONTRAST = 150
 
-# Scroll bars are drawn at this multiple of the desktop's own thickness —
-# wider bars are easier to grab with the mouse.
-SCROLLBAR_SCALE = 2
-
-# A floor for the doubling, in case a style reports an implausibly small
-# extent (or none at all) and the result would be a bar too thin to hit.
-MIN_SCROLLBAR_EXTENT = 12
-
 # Menu padding, in pixels: the space around the label of a menu-bar title and
 # of an item inside a menu. Both are bigger targets than the desktop's default,
 # which is sized for a mouse that never misses. The menus carry so few items
@@ -139,7 +131,8 @@ MENU_ITEM_PADDING = "10px 32px"
 MENU_BORDER = "1px solid #9a9a9a"
 
 # How much bigger than the desktop's own a check box's indicator is drawn.
-# Same reasoning as the scroll bars: a bigger target is an easier one to hit.
+# Same reasoning as `windowchrome`'s scroll bars, which this used to sit
+# beside: a bigger target is an easier one to hit.
 CHECKBOX_SCALE = 2
 
 # The space around a file name in the results list, in pixels. Qt packs list
@@ -408,58 +401,6 @@ def enlarge_checkbox(box: QCheckBox) -> None:
     box.setStyle(style)
 
 
-def scrollbar_style() -> str:
-    """Qt stylesheet making a scroll bar about twice the usual thickness.
-
-    Applied to the individual scroll bars of a pane rather than to the pane
-    itself, so the widget keeps its native rendering and only the bars change.
-
-    The base thickness is read from the active style's own PM_ScrollBarExtent
-    rather than assumed, so this doubles whatever the desktop would have
-    drawn instead of jumping to a fixed pixel count that happens to be double
-    on one theme.
-
-    As with the buttons, styling a scroll bar at all opts it out of native
-    drawing — so the groove, the handle and the two stepper buttons all have
-    to be described here. The steppers are explicitly collapsed to zero:
-    left undescribed they would render as blank boxes at each end.
-    """
-    extent = QApplication.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-    thickness = max(extent, MIN_SCROLLBAR_EXTENT) * SCROLLBAR_SCALE
-
-    palette = QApplication.palette()
-    base = palette.color(QPalette.ColorRole.Base)
-    # The handle has to contrast with the pane behind it, and which direction
-    # that is depends on the theme: lighten on a dark pane, darken on a light
-    # one. Derived from the palette so the bars follow the desktop rather than
-    # pinning a gray that only suits one of the two.
-    handle = base.lighter(230) if base.lightness() < 128 else base.darker(140)
-    hover = handle.lighter(120) if base.lightness() < 128 else handle.darker(115)
-    margin = 2
-    radius = (thickness - 2 * margin) // 2
-
-    return f"""
-        QScrollBar:vertical   {{ background: {base.name()}; width: {thickness}px;
-                                 margin: 0; border: none; }}
-        QScrollBar:horizontal {{ background: {base.name()}; height: {thickness}px;
-                                 margin: 0; border: none; }}
-        QScrollBar::handle:vertical   {{ min-height: {thickness * 2}px; }}
-        QScrollBar::handle:horizontal {{ min-width: {thickness * 2}px; }}
-        QScrollBar::handle {{
-            background: {handle.name()};
-            border-radius: {radius}px;
-            margin: {margin}px;
-        }}
-        QScrollBar::handle:hover {{ background: {hover.name()}; }}
-        /* No stepper arrows: the extra width is for grabbing the handle, and
-           zero-sized steppers give the handle the whole length of the bar. */
-        QScrollBar::add-line, QScrollBar::sub-line {{
-            width: 0; height: 0; border: none; background: none;
-        }}
-        QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
-    """
-
-
 def menu_style() -> str:
     """Qt stylesheet for the window's menu bar and its drop-downs.
 
@@ -504,13 +445,6 @@ def menu_style() -> str:
             color: palette(highlighted-text);
         }}
     """
-
-
-def apply_scrollbars(area) -> None:
-    """Give a scroll area's own bars the wider styling."""
-    bars = scrollbar_style()
-    area.verticalScrollBar().setStyleSheet(bars)
-    area.horizontalScrollBar().setStyleSheet(bars)
 
 
 def tune_palette(app: QApplication) -> None:
