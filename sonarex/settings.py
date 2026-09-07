@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from windowchrome import apply_scrollbars
+from windowchrome import apply_checkboxes, apply_scrollbars
 
 from . import APP_NAME
 from .archive import MAX_DEPTH
@@ -50,7 +50,6 @@ from .style import (
     SECONDARY_BUTTON_BG,
     action_button,
     action_button_size,
-    enlarge_checkbox,
     mono_font,
 )
 
@@ -301,7 +300,7 @@ class SettingsDialog(QDialog):
         check.setToolTip(tooltip)
         # Matched to the main window's Word Wrap, which is the only other
         # checkbox in the app.
-        enlarge_checkbox(check)
+        apply_checkboxes(check)
         self._layout.addWidget(check)
         return check
 

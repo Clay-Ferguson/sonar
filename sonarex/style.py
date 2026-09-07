@@ -12,8 +12,6 @@ from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QProxyStyle,
     QPushButton,
     QStyle,
 )
@@ -129,11 +127,6 @@ SPLITTER_CONTRAST = 150
 MENU_BAR_ITEM_PADDING = "8px 16px"
 MENU_ITEM_PADDING = "10px 32px"
 MENU_BORDER = "1px solid #9a9a9a"
-
-# How much bigger than the desktop's own a check box's indicator is drawn.
-# Same reasoning as `windowchrome`'s scroll bars, which this used to sit
-# beside: a bigger target is an easier one to hit.
-CHECKBOX_SCALE = 2
 
 # The space around a file name in the results list, in pixels. Qt packs list
 # rows at the bare height of their text, which runs a long list of paths
@@ -360,45 +353,6 @@ def results_list_style() -> str:
             color: palette(highlighted-text);
         }}
     """
-
-
-class _LargeIndicatorStyle(QProxyStyle):
-    """A style that reports check-box indicators at `CHECKBOX_SCALE` size.
-
-    The indicator is sized by the style, not by the font or the widget, so a
-    check box cannot simply be made bigger from the outside. A stylesheet can
-    set the indicator's width and height, but styling that sub-control at all
-    takes over its drawing, and the check mark — which no stylesheet can draw
-    without shipping an image — goes with it, leaving a box that never looks
-    ticked. Overriding the pixel metric instead keeps the native rendering and
-    only changes the rectangle it is asked to fill.
-
-    Default-constructed on purpose: with no base style it proxies whatever
-    QApplication is using at the time, and, unlike the constructor that takes
-    a style, it does not take ownership of the application's shared one.
-    """
-
-    def pixelMetric(self, metric, option=None, widget=None):  # noqa: N802 (Qt)
-        size = super().pixelMetric(metric, option, widget)
-        if metric in (
-            QStyle.PixelMetric.PM_IndicatorWidth,
-            QStyle.PixelMetric.PM_IndicatorHeight,
-        ):
-            return size * CHECKBOX_SCALE
-        return size
-
-
-def enlarge_checkbox(box: QCheckBox) -> None:
-    """Draw `box`'s indicator larger, leaving its label at the normal size.
-
-    The proxy is parented to the check box rather than installed on the
-    application: it is one widget's affordance, not a change of theme. That
-    parenting is also what keeps the style alive — `setStyle()` does not take
-    ownership, and a style collected out from under a live widget crashes it.
-    """
-    style = _LargeIndicatorStyle()
-    style.setParent(box)
-    box.setStyle(style)
 
 
 def menu_style() -> str:

@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from windowchrome import apply_scrollbars, close_markdown_windows
+from windowchrome import apply_checkboxes, apply_scrollbars, close_markdown_windows
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
@@ -57,7 +57,6 @@ from .style import (
     SPLITTER_HANDLE_WIDTH,
     STATUS_BAR_MARGINS,
     action_button,
-    enlarge_checkbox,
     icon_button,
     menu_style,
     mono_font,
@@ -342,7 +341,7 @@ class MainWindow(QMainWindow):
         self.match_label.setToolTip("The current match, and how many this file has")
 
         self.wrap_check = QCheckBox("Word Wrap")
-        enlarge_checkbox(self.wrap_check)
+        apply_checkboxes(self.wrap_check)
         self.wrap_check.setChecked(True)  # matches the pane's initial mode
         self.wrap_check.toggled.connect(self._set_word_wrap)
 
