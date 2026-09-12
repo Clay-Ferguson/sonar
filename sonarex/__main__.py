@@ -6,13 +6,12 @@ import argparse
 import os
 import sys
 
-import windowchrome
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from . import APP_NAME, UI_POINT_SIZE
 from .config import ensure_config
 from .search import ugrep_available
-from .style import SONAREX_THEME, tune_palette
+from .style import tune_palette
 from .window import MainWindow
 
 
@@ -56,12 +55,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Before the QApplication, and it has to be: `configure()` picks the
-    # Wayland decoration plugin through an environment variable that the
-    # platform plugin reads during that constructor and never again. See
-    # `../windowchrome/README.md`.
-    windowchrome.configure(SONAREX_THEME)
-
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     # applicationDisplayName is deliberately NOT set. Every platform backend
@@ -83,10 +76,6 @@ def main() -> int:
     app.setFont(font)
 
     tune_palette(app)
-    # After `tune_palette`, not before: `install()` captures the body's colors
-    # at the moment it runs, and a palette changed afterwards is one it never
-    # saw.
-    windowchrome.install(app)
 
     if not ugrep_available():
         QMessageBox.critical(

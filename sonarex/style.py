@@ -16,8 +16,6 @@ from PyQt6.QtWidgets import (
     QStyle,
 )
 
-from windowchrome import ChromeTheme, body_text_color, body_window_color
-
 from . import UI_POINT_SIZE
 
 # How far the window surface is lightened away from the panes sitting on it,
@@ -61,16 +59,6 @@ MATCH_CURRENT_BG = "#ffe066"
 # green Search button so the two do not compete: these step through what a
 # search already found, they do not start one.
 NAV_BUTTON_BG = "#41648c"
-
-# The window's title bar, and with it the thin frame the decoration draws down
-# the sides and along the bottom. `windowchrome` owns both — see
-# `../windowchrome/README.md` for why they are reachable at all (Wayland only,
-# by repurposing three palette roles) and why their *size* is not.
-#
-# The library ships neutral defaults and this is Sonar's override of them. The
-# blue is seeded from the desktop's headerbar colors so the app sits in with
-# everything else rather than announcing itself.
-SONAREX_THEME = ChromeTheme(title_bg="#1369da")
 
 # The Open button is tinted with the selection color instead of a constant of
 # its own: it acts on the row highlighted in the results list, and sharing that
@@ -319,7 +307,7 @@ def splitter_style() -> str:
     the stylesheet paints the handle, but the splitter's own layout is what
     reserves the space and decides where a drag starts.
     """
-    window = body_window_color()
+    window = QApplication.palette().color(QPalette.ColorRole.Window)
     handle = (
         window.lighter(SPLITTER_CONTRAST)
         if window.lightness() < 128
@@ -372,13 +360,10 @@ def menu_style() -> str:
     visible boundary at all. The gray is pinned rather than derived because
     it has to read against both a light and a dark surface, and giving
     `QMenu` a border means giving it an explicit background too: a styled
-    frame stops the native style painting the pop-up and Qt fills it from
-    the `Window` role instead — which windowchrome has repurposed for the
-    title bar, so leaving it out paints the menu title-bar blue rather than
-    the gray it had before. `body_window_color()` is that gray, and is why
-    this one color is interpolated rather than written as `palette(window)`.
+    frame stops the native style painting the pop-up, so its background is
+    the window surface, written out here.
     """
-    body = body_window_color().name()
+    body = QApplication.palette().color(QPalette.ColorRole.Window).name()
     return f"""
         QMenuBar::item {{
             padding: {MENU_BAR_ITEM_PADDING};
@@ -437,10 +422,6 @@ def status_style(busy: bool) -> str:
     `padding` on a QStatusBar is silently ignored. See the note on that
     constant.
 
-    Idle takes `body_window_color()` rather than `palette(window)`: windowchrome
-    has repurposed the Window role for the title bar, so naming the role here
-    would paint the bar title-bar blue — the same trap `menu_style()` documents.
-
     Both states carry the same top border: the bar is a strip of the window
     rather than a widget sitting on it, so without a line it runs straight into
     the pane above — visibly so when idle, where its background *is* the window
@@ -456,8 +437,9 @@ def status_style(busy: bool) -> str:
     if busy:
         background, foreground = STATUS_BUSY_BG, STATUS_BUSY_FG
     else:
-        background = body_window_color().name()
-        foreground = body_text_color().name()
+        palette = QApplication.palette()
+        background = palette.color(QPalette.ColorRole.Window).name()
+        foreground = palette.color(QPalette.ColorRole.WindowText).name()
     return f"""
         QStatusBar {{
             background: {background};

@@ -43,7 +43,7 @@ Optional: `poppler-utils`, for `pdftotext`. With it installed, ugrep searches th
 
 ### The `windowchrome` sibling project
 
-Sonar's colored title bar and window border come from **[windowchrome](https://github.com/Clay-Ferguson/windowchrome)**, a small reusable PyQt6 library kept in its own repository so other apps can wear the same chrome — and, since the help windows were added, so they can show their own documentation the same way. It is **not on PyPI**: `pyproject.toml` resolves it by path, from a directory sitting *beside* this one.
+Sonar's wide scroll bars, enlarged check boxes and help windows come from **[windowchrome](https://github.com/Clay-Ferguson/windowchrome)**, a small reusable PyQt6 library kept in its own repository so other apps can share the same look and show their own documentation the same way. It is **not on PyPI**: `pyproject.toml` resolves it by path, from a directory sitting *beside* this one.
 
 ```bash
 cd ..                      # the directory holding sonarex/
