@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg) ![Platform](https://img.shields.io/badge/platform-linux-lightgrey.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-A desktop search utility: type a query, get every file under a folder whose *contents* match, and read them without leaving the window.
+A desktop search utility: type a query, get every file under a folder whose *contents* match — or, with the dropdown set to **Filenames**, every file and folder whose *name* matches — and read them without leaving the window.
 
 [ugrep](https://github.com/Genivia/ugrep) does the searching, so queries are Google-style Boolean expressions and a whole source tree is scanned in seconds. Sonar is the window around it — results stream in as they are found, clicking one shows the file with every match highlighted, and **Open** hands it to your editor.
 

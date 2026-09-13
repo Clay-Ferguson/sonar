@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PyQt6.QtWidgets import QMessageBox  # noqa: E402
 
 from sonarex import config, viewer  # noqa: E402
+from sonarex.search import MODE_CONTENT  # noqa: E402
 from sonarex.window import MainWindow  # noqa: E402
 
 # The word every fixture file contains and every search looks for.
@@ -207,6 +208,61 @@ def guarded_tree(tmp_path):
 
 
 @pytest.fixture(scope="session")
+def name_tree(tmp_path_factory):
+    """A tree whose *names* are the point, for the Filenames search mode.
+
+    Every case a name search has to get right against ugrep's view of the
+    same files: a folder (ugrep never lists one), an empty file (ugrep skips
+    it even for the empty pattern), a name in mixed case, and a file that
+    carries the word only in its *content*, which a name search must not list.
+    `My Report.md` has the word in its text as well, so a preview that wrongly
+    asked ugrep for highlights would visibly get some.
+    """
+    root = tmp_path_factory.mktemp("names")
+    (root / "ReportDir" / "sub").mkdir(parents=True)
+    (root / "ReportDir" / "sub" / "inner.txt").write_bytes(b"nothing to see\n")
+    (root / "empty-report.txt").write_bytes(b"")
+    (root / "My Report.md").write_bytes(b"a report inside\n")
+    (root / "unrelated.txt").write_bytes(b"the word report is only in here\n")
+    (root / "node_modules").mkdir()
+    (root / "node_modules" / "report.js").write_bytes(b"// nothing\n")
+    return str(root)
+
+
+# What the system opener is swapped for while a test clicks Open or the folder
+# button. Absolute, so `_start_detached` has no PATH lookup to do and the argv
+# recorded is exactly the one the code built; and not the `/bin/true` the
+# `conf` fixture gives the Open command, so the two stay told apart.
+NOOP_OPENER = "/bin/echo"
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """Record what is handed to the system opener instead of running it.
+
+    The real command is `xdg-open`, and a test that let it run would open a
+    file manager window on whoever's desktop is running the suite.
+
+    The patch lands on `subprocess.Popen` itself, which is the module every
+    other spawn in the app shares — so anything that is not the opener is
+    passed straight through to the real one. Without that, selecting a row
+    would take the preview's own extraction down with it.
+    """
+    calls = []
+    real = viewer.subprocess.Popen
+
+    def spy(argv, **kwargs):
+        if argv[:1] == [NOOP_OPENER]:
+            calls.append(argv)
+            return None
+        return real(argv, **kwargs)
+
+    monkeypatch.setattr(viewer, "SYSTEM_OPEN_COMMAND", NOOP_OPENER)
+    monkeypatch.setattr(viewer.subprocess, "Popen", spy)
+    return calls
+
+
+@pytest.fixture(scope="session")
 def colon_tree(tmp_path_factory):
     """A zip holding a member with a colon in its name.
 
@@ -340,11 +396,12 @@ def search(qtbot):
     pytest-qt to close when the test ends.
     """
 
-    def run(folder, query):
+    def run(folder, query, mode=MODE_CONTENT):
         window = MainWindow(folder)
         qtbot.addWidget(window)
         window.query_edit.setText(query)
         window.folder_edit.setText(folder)
+        window.mode_combo.setCurrentText(mode)
         with qtbot.waitSignal(window._runner.finished, timeout=30000):
             window.start_search()
         return window

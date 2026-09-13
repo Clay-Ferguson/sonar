@@ -432,6 +432,50 @@ def search_globs() -> list[str]:
     )
 
 
+def convert_excluded_to_find(pattern: str) -> list[str]:
+    """A find-style exclusion pattern as one `find` test, for a name search.
+
+    The config's spelling is already `find -path`'s, but the usual form
+    `*/node_modules/*` matches what is *inside* the directory rather than the
+    directory itself — pruned that way, find still opens it and tests every
+    entry. Dropping the trailing `/*` prunes the directory as it is reached,
+    and it is the directory's own row that should not be listed either.
+
+        */node_modules/*   ->  -path */node_modules
+        */a/b/*            ->  -path */a/b
+        docs/*.tmp         ->  -path docs/*.tmp
+        *.log              ->  -name *.log
+    """
+    if pattern.startswith("*/") and pattern.endswith("/*"):
+        return ["-path", pattern[:-2]]
+    if "/" in pattern:
+        return ["-path", pattern]
+    return ["-name", pattern]
+
+
+def build_prune_args(excluded: list[str]) -> list[str]:
+    """Exclusions as a `find` prune clause: `( T1 -o T2 … ) -prune -o`.
+
+    Empty when nothing is excluded, so the caller can put it straight in front
+    of the name tests. `included` has no counterpart here on purpose: it is a
+    whitelist of file *types* to read, and applied to names it would hide
+    every folder in the tree.
+    """
+    tests: list[str] = []
+    for pattern in excluded:
+        if tests:
+            tests.append("-o")
+        tests.extend(convert_excluded_to_find(pattern))
+    if not tests:
+        return []
+    return ["(", *tests, ")", "-prune", "-o"]
+
+
+def search_prune_args() -> list[str]:
+    """The prune clause for the current config — what a name search needs."""
+    return build_prune_args(get_patterns(load_config(), "excluded"))
+
+
 def search_depth() -> int:
     """How many archive levels a search should open: 0 when it should not.
 

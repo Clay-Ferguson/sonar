@@ -20,7 +20,7 @@ import subprocess
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
 from .archive import RESULT_FORMAT, SEPARATOR, Hit, member_glob
-from .config import search_depth, search_fuzzy, search_globs
+from .config import search_depth, search_fuzzy, search_globs, search_prune_args
 
 # Exit statuses, confirmed against ugrep 7.5.0. The distinction that matters is
 # 1 vs 2: "nothing matched" is an ordinary outcome to report in the status
@@ -49,6 +49,16 @@ PDF_FILTER = "--filter=pdf:pdftotext -q % -"
 SKIPPED_FILE_NOTICES = ("warning:", "cannot decompress")
 
 
+def _without_notices(stderr: str, notices: tuple[str, ...]) -> str:
+    """`stderr` with every line carrying one of `notices` dropped."""
+    kept = [
+        line
+        for line in stderr.splitlines()
+        if line.strip() and not any(note in line for note in notices)
+    ]
+    return "\n".join(kept)
+
+
 def search_error(stderr: str) -> str:
     """What in `stderr` is a real failure, with the skipped-file notes removed.
 
@@ -56,12 +66,19 @@ def search_error(stderr: str) -> str:
     the ordinary outcome of searching a tree containing a password-protected
     archive and must not reach the user as an error.
     """
-    kept = [
-        line
-        for line in stderr.splitlines()
-        if line.strip() and not any(note in line for note in SKIPPED_FILE_NOTICES)
-    ]
-    return "\n".join(kept)
+    return _without_notices(stderr, SKIPPED_FILE_NOTICES)
+
+
+# The name search's equivalent: what GNU find prints for a directory it may not
+# open, and for an entry that vanished between being listed and being tested.
+# find exits 1 for either and carries on, so like ugrep's 2 the status alone
+# cannot say whether anything actually went wrong.
+SKIPPED_PATH_NOTICES = ("Permission denied", "No such file or directory")
+
+
+def name_search_error(stderr: str) -> str:
+    """What in find's `stderr` is a real failure, per-path notes removed."""
+    return _without_notices(stderr, SKIPPED_PATH_NOTICES)
 
 
 def ugrep_available() -> bool:
@@ -124,6 +141,72 @@ def build_argv(query: str, folder: str) -> list[str]:
     argv.extend(search_globs())
     argv.append("--stats")
     argv.extend(["--", query, folder])
+    return argv
+
+
+# What the query is matched against: the text inside files, or the names of
+# files and folders. The strings are also the dropdown's labels, so there is
+# one spelling of each and nothing to map between.
+MODE_CONTENT = "Content"
+MODE_NAMES = "Filenames"
+
+# The characters that make a word of a name query a glob of its own rather
+# than a fragment to be found anywhere in the name.
+NAME_GLOB_CHARACTERS = set("*?[")
+
+
+def name_terms(query: str) -> list[str]:
+    """A name query as `find -iname` patterns, one per word, all required.
+
+      report            -> *report*          (anywhere in the name)
+      report 2024       -> *report*, *2024*  (both, in either order)
+      "my report"       -> *my report*       (a quoted phrase is one word)
+      *.pdf             -> *.pdf             (a glob, on the whole name)
+
+    Not ugrep's query language: find has no regexes, OR or NOT, and a name
+    search that half-understood them would be worse than one that plainly
+    does words and globs. An unbalanced quote falls back to splitting on
+    whitespace, so `it's` is still searched for rather than refused.
+    """
+    try:
+        words = shlex.split(query)
+    except ValueError:
+        words = query.split()
+    return [
+        word if set(word) & NAME_GLOB_CHARACTERS else f"*{word}*"
+        for word in words
+        if word
+    ]
+
+
+def build_name_argv(query: str, folder: str) -> list[str]:
+    """The `find` command line that lists names matching `query` under `folder`.
+
+    ugrep cannot do this: it lists only files whose *content* matched, so it
+    never reports a directory, and it skips an empty file even when asked to
+    match the empty pattern (verified with -Y and --iglob, 7.5.0).
+
+      find FOLDER -mindepth 1 ( EXCLUDED… ) -prune -o -iname T1 -iname T2 -print
+
+    `-mindepth 1` keeps the folder itself off the list, and comes first because
+    find warns about it anywhere else. It also stops the folder being pruned
+    when its own name happens to match an exclusion — tests are not applied
+    above the minimum depth. Juxtaposed tests are an AND, and bind tighter than
+    the `-o`, so the prune clause and the name tests need no extra grouping.
+
+    `folder` is absolute, as it is for ugrep, so every line printed starts with
+    '/' and `SearchRunner._take_line` needs no change to tell a hit apart.
+
+    `stdbuf -oL` because find writes to a pipe through a fully buffered stdout:
+    without it a slow walk delivers its hits in 4 KiB bursts rather than as
+    they are found, which is what `--line-buffered` does for ugrep.
+    """
+    argv = ["find", folder, "-mindepth", "1", *search_prune_args()]
+    for term in name_terms(query):
+        argv.extend(["-iname", term])
+    argv.append("-print")
+    if shutil.which("stdbuf"):
+        argv = ["stdbuf", "-oL", *argv]
     return argv
 
 
@@ -346,6 +429,7 @@ class SearchRunner(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._process: QProcess | None = None
+        self._mode = MODE_CONTENT  # which program the current search runs
         self._stdout_tail = ""  # an incomplete last line, held for the next read
         self._stderr = ""
         self._files_searched = 0
@@ -367,10 +451,16 @@ class SearchRunner(QObject):
     def is_running(self) -> bool:
         return self._process is not None
 
-    def start(self, query: str, folder: str) -> None:
-        """Abandon any running search and start one for `query` under `folder`."""
+    def start(self, query: str, folder: str, mode: str = MODE_CONTENT) -> None:
+        """Abandon any running search and start one for `query` under `folder`.
+
+        `mode` picks the program: ugrep for `MODE_CONTENT`, find for
+        `MODE_NAMES`. Both print one absolute path per line, so everything
+        after the spawn is shared.
+        """
         self.stop()
 
+        self._mode = mode
         self._stdout_tail = ""
         self._stderr = ""
 
@@ -386,7 +476,10 @@ class SearchRunner(QObject):
         self._files_searched = 0
         self._in_stats = False
 
-        argv = build_argv(query, folder)
+        if mode == MODE_NAMES:
+            argv = build_name_argv(query, folder)
+        else:
+            argv = build_argv(query, folder)
         process.start(argv[0], argv[1:])
 
     def stop(self) -> None:
@@ -468,9 +561,11 @@ class SearchRunner(QObject):
         if error is not QProcess.ProcessError.FailedToStart:
             return
         self._process = None
-        self.finished.emit(
-            -1, "Could not run ugrep. Is it installed?\n\n  sudo apt install ugrep"
-        )
+        if self._mode == MODE_NAMES:
+            message = "Could not run find. Is it installed?\n\n  sudo apt install findutils"
+        else:
+            message = "Could not run ugrep. Is it installed?\n\n  sudo apt install ugrep"
+        self.finished.emit(-1, message)
 
     def _on_finished(self, exit_code: int, status: QProcess.ExitStatus) -> None:
         # ugrep does not newline-terminate under every combination of flags, so

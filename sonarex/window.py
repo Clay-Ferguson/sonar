@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -41,9 +42,13 @@ from .pdfview import PDF_AVAILABLE, PdfPane
 from .search import (
     EXIT_MATCHED,
     EXIT_NO_MATCH,
+    MODE_CONTENT,
+    MODE_NAMES,
     SearchRunner,
     literal_query_term,
     match_spans,
+    name_search_error,
+    name_terms,
     search_error,
 )
 from .settings import show_settings
@@ -95,6 +100,14 @@ OPEN_TIP = "Open this file in the editor"
 OPEN_TIP_ARCHIVED = (
     "Open a read-only copy extracted from the archive.\n"
     "Edits to it do not go back into the archive."
+)
+# A folder row, which only a name search produces: Open goes to the file
+# manager rather than the editor, and that is worth saying before the click.
+OPEN_TIP_FOLDER = "Show this folder in the file manager"
+
+MODE_TIP = (
+    "Content: search the text inside files.\n"
+    "Filenames: search the names of files and folders."
 )
 
 # The folder button's, which changes with the selection for the same reason
@@ -168,6 +181,10 @@ class MainWindow(QMainWindow):
         # re-runs ugrep to find out where to paint, and a run without the
         # setting that found the file marks nothing in it.
         self._search_fuzzy = 0
+        # Whether these results came from a name search. Pinned with the rest,
+        # because it decides how a row previews: after a name search the query
+        # describes names, so there is nothing in the file for it to highlight.
+        self._search_names = False
         # The current file's matches, flattened out of the spans dict and put in
         # reading order, plus where Prev/Next is parked in that list. A flat
         # list rather than the dict because stepping is what it is for: the dict
@@ -218,9 +235,21 @@ class MainWindow(QMainWindow):
         row_height = self.search_button.sizeHint().height()
         self.query_edit.setFixedHeight(row_height)
 
+        # What the query is matched against. Either/or, never both, and it
+        # starts on Content every launch: it is a choice about this search,
+        # not a setting. Changing it runs nothing — the query only runs from
+        # Search or Enter, as always.
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([MODE_CONTENT, MODE_NAMES])
+        self.mode_combo.setCurrentText(MODE_CONTENT)
+        self.mode_combo.setToolTip(MODE_TIP)
+        self.mode_combo.setFixedHeight(row_height)
+        self.mode_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+
         query_row = QHBoxLayout()
         query_row.addWidget(search_label)
         query_row.addWidget(self.query_edit, 1)
+        query_row.addWidget(self.mode_combo)
         query_row.addWidget(self.search_button)
         layout.addLayout(query_row)
 
@@ -572,6 +601,20 @@ class MainWindow(QMainWindow):
             self.query_edit.setFocus()
             return
 
+        names = self.mode_combo.currentText() == MODE_NAMES
+        if names and "/" in query:
+            # find's -iname tests the last path component only, so a slash can
+            # never match; it would only warn and list nothing.
+            self._report_problem(
+                "A file or folder name cannot contain '/'.\n\n"
+                "Search for the name alone, and set the folder in the row below."
+            )
+            return
+        if names and not name_terms(query):
+            # Nothing but empty quotes: there is no word to look for.
+            self.query_edit.setFocus()
+            return
+
         folder = self._folder()
         if not os.path.isdir(folder):
             self._report_problem(f"Not a folder:\n\n{folder}")
@@ -586,10 +629,13 @@ class MainWindow(QMainWindow):
         # and `_display_path` can rely on the prefix matching.
         self._search_root = folder
         self._search_query = query
-        self._search_depth = search_depth()
-        self._search_fuzzy = search_fuzzy()
+        self._search_names = names
+        # A name search never looks inside an archive or approximates, so
+        # neither setting may shape how its rows are read back.
+        self._search_depth = 0 if names else search_depth()
+        self._search_fuzzy = 0 if names else search_fuzzy()
         self._set_status(f"Searching {folder}…", busy=True)
-        self._runner.start(query, folder)
+        self._runner.start(query, folder, MODE_NAMES if names else MODE_CONTENT)
 
     # -- rows ---------------------------------------------------------------
 
@@ -652,7 +698,10 @@ class MainWindow(QMainWindow):
     # -- search callbacks --------------------------------------------------
 
     def _on_match(self, line: str) -> None:
-        self.results.addItem(self._make_item(parse_result_line(line)))
+        # find prints bare paths, and a name may legally contain the tab that
+        # `parse_result_line` would look for a member after.
+        hit = Hit(line, "") if self._search_names else parse_result_line(line)
+        self.results.addItem(self._make_item(hit))
         self._match_count += 1
         # Cheap enough to do per hit, and it is what turns the spinner from
         # "still running" into "still finding things".
@@ -679,13 +728,20 @@ class MainWindow(QMainWindow):
         exits 2, not 1.
         """
         problem = ""
-        if exit_code not in (EXIT_MATCHED, EXIT_NO_MATCH):
-            problem = search_error(stderr)
+        # find has no "no match" status: 0 is a clean walk and 1 means some
+        # path could not be read, which — like ugrep's 2 — is usually nothing.
+        if self._search_names:
+            failed, program, explain = exit_code != 0, "find", name_search_error
+        else:
+            failed = exit_code not in (EXIT_MATCHED, EXIT_NO_MATCH)
+            program, explain = "ugrep", search_error
+        if failed:
+            problem = explain(stderr)
             # An unexplained failure is still a failure: only silence a
-            # non-zero status when ugrep said why and every reason was a file
-            # it skipped.
+            # non-zero status when the program said why and every reason was
+            # a path it skipped.
             if not problem and not stderr.strip():
-                problem = f"ugrep exited with status {exit_code}."
+                problem = f"{program} exited with status {exit_code}."
         if problem:
             self._set_status(STATUS_FAILED)
             self._report_problem(problem)
@@ -700,9 +756,11 @@ class MainWindow(QMainWindow):
         self._sort_by_mtime()
         # The root is named because the rows no longer carry it, and the folder
         # row above is not proof of it — that field stays editable once a
-        # search has finished.
+        # search has finished. A name search lists folders too, so its rows
+        # are counted as items rather than files.
+        noun = "item" if self._search_names else "file"
         self._set_status(
-            f"{self._match_count:,} file"
+            f"{self._match_count:,} {noun}"
             f"{'' if self._match_count == 1 else 's'} found"
             f"{self._searched_note()} in {self._search_root}"
         )
@@ -878,7 +936,11 @@ class MainWindow(QMainWindow):
             self._adopt_matches({})
             return
         hit = current.data(HIT_ROLE)
-        self.open_button.setToolTip(OPEN_TIP_ARCHIVED if hit.member else OPEN_TIP)
+        is_folder = not hit.member and os.path.isdir(hit.path)
+        if is_folder:
+            self.open_button.setToolTip(OPEN_TIP_FOLDER)
+        else:
+            self.open_button.setToolTip(OPEN_TIP_ARCHIVED if hit.member else OPEN_TIP)
         self.folder_button.setToolTip(FOLDER_TIP_ARCHIVED if hit.member else FOLDER_TIP)
 
         # A PDF is rendered rather than described — but only if it renders:
@@ -889,8 +951,11 @@ class MainWindow(QMainWindow):
         # path, and there is no path to a name inside a zip. It falls through
         # to the text pane, which says so.
         text = None
-        if self._pdf is not None and not hit.member and is_pdf(hit.path):
-            text = self._pdf.show_file(hit.path, literal_query_term(self._search_query))
+        if self._pdf is not None and not is_folder and not hit.member and is_pdf(hit.path):
+            # After a name search the query is about the name, so nothing in
+            # the pages is marked.
+            term = None if self._search_names else literal_query_term(self._search_query)
+            text = self._pdf.show_file(hit.path, term)
             if text is None:
                 self._show_pane(True)
                 self._adopt_pdf_matches()
@@ -907,9 +972,11 @@ class MainWindow(QMainWindow):
         # rather than the file, so there is nothing in it ugrep matched and its
         # line numbers mean nothing. Asking ugrep about it would also be asking
         # about a file that by definition cannot be shown.
+        # And after a name search the query matched the name, not the text, so
+        # there is nothing in the file to ask ugrep about either.
         spans = (
             {}
-            if is_notice or not self._search_query
+            if is_notice or not self._search_query or self._search_names
             else match_spans(
                 self._search_query, hit, self._search_depth, self._search_fuzzy
             )

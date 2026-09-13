@@ -19,6 +19,17 @@
 
 *With **Find near matches** turned on in **Options ▸ Settings**, every term above — quoted, unquoted or negated — also matches words spelled a little differently. The first letter still has to be right. See [Finding near matches](USER_GUIDE.md#finding-near-matches).*
 
+## Filenames Mode
+
+Everything above is for **Content** searches. With the dropdown set to **Filenames**, the query is matched against file and folder names instead:
+
+- Each word must appear somewhere in the name, in any order
+- A word with `*`, `?` or `[` is a glob on the whole name: `*.pdf`
+- `"quoted words"` stay together as one piece
+- No regexes, `OR` or `NOT`, and no `/`
+
+See [Searching file and folder names](USER_GUIDE.md#searching-file-and-folder-names).
+
 ---
 
 For everything else Sonar does, see the [User Guide](USER_GUIDE.md) — it is open under **Options ▸ User Guide** as well.

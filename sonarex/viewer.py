@@ -14,6 +14,10 @@ to the desktop's default application instead.
 `open_folder` is the same handoff aimed one level up — the folder the file
 sits in, given to the desktop's file manager.
 
+A name search can also list a *folder*. Both the preview and Open take that
+in their stride: the preview says what it is, and Open sends it to the file
+manager exactly as `open_folder` would.
+
 All three take a `Hit` rather than a path, because with Search Archives on a
 result can name a file inside a zip, which no editor and no `open()` can
 reach. Those go through `archive.extract` — to the pane directly for a
@@ -65,6 +69,10 @@ PDF_SUFFIX = ".pdf"
 # for a directory is the desktop's file manager.
 SYSTEM_OPEN_EXTENSIONS = {PDF_SUFFIX}
 SYSTEM_OPEN_COMMAND = "xdg-open"
+
+# What the preview pane says for a folder row, which only a name search yields.
+# There is nothing to read, so it says what Open will do instead.
+FOLDER_NOTICE = "Folder — press Open to show it in the file manager."
 
 
 def is_pdf(path: str) -> bool:
@@ -160,6 +168,10 @@ def read_for_preview(hit: Hit, depth: int = 0) -> tuple[str, bool]:
     `_read_compressed`; everything else reads straight off the disk as always.
     """
     path = hit.path
+    # Only a name search lists folders. Without this one falls through to
+    # open(), which fails with IsADirectoryError and reads as a broken file.
+    if not hit.member and os.path.isdir(path):
+        return (FOLDER_NOTICE, True)
     if depth and (hit.member or archive.is_compressed(path)):
         return _read_compressed(hit, depth)
 
@@ -380,6 +392,11 @@ def open_in_editor(hit: Hit, depth: int = 0) -> str | None:
     if not os.path.exists(path):
         return f"Cannot open — the file no longer exists:\n{path}"
 
+    # A folder, from a name search: no editor is the right tool, and the file
+    # manager the folder button would open is.
+    if not hit.member and os.path.isdir(path):
+        return _show_directory(path)
+
     if hit.member:
         # No editor can open a name inside a zip, so it is extracted to a
         # read-only copy and that is what gets opened. The copy is a copy:
@@ -440,6 +457,16 @@ def open_folder(hit: Hit) -> str | None:
     folder = containing_folder(hit)
     if not os.path.isdir(folder):
         return f"Cannot open — the folder no longer exists:\n{folder}"
+    return _show_directory(folder)
+
+
+def _show_directory(folder: str) -> str | None:
+    """Hand `folder` to the desktop's file manager. An error, or None.
+
+    Shared by the folder button and by Open on a folder row, so both reach the
+    same program: `SYSTEM_OPEN_COMMAND`, whatever the desktop has registered
+    for a directory — never a file manager named here.
+    """
     hint = (
         f"\n\nFolders are opened with the system's file manager, "
         f"through '{SYSTEM_OPEN_COMMAND}'."

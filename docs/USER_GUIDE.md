@@ -16,6 +16,7 @@ This guide covers everything the window does. For the configuration file in deta
 - [Running a search](#running-a-search)
 - [Query syntax](#query-syntax)
 - [Finding near matches](#finding-near-matches)
+- [Searching file and folder names](#searching-file-and-folder-names)
 - [The results list](#the-results-list)
 - [The preview pane](#the-preview-pane)
 - [Stepping through matches](#stepping-through-matches)
@@ -84,7 +85,7 @@ removes the desktop entry and the icons again. Your configuration file is left a
 ![](img/application.png)
 
 - **Menu bar** — **File**, holding **Exit**, and **Options**, holding **Settings**, **Query Syntax** and **User Guide**.
-- **Search row** — the query field and the **Search** button.
+- **Search row** — the query field, the **Content / Filenames** dropdown, and the **Search** button.
 - **Folder row** — the folder to search, and a **…** button that opens a folder chooser.
 - **Results list** (left) — one row per matching file, newest first.
 - **Preview pane** (right) — the selected file, read-only.
@@ -100,7 +101,8 @@ The divider between the two panes is draggable — grab it and give whichever si
 
 1. **Set the folder.** Type a path into the **Folder** row (`~` works), or press **…** to pick one in a file dialog. The search covers that folder and everything under it, recursively.
 2. **Type a query** in the **Search** row. See [Query syntax](#query-syntax) below.
-3. **Press Enter** — from either field — or click **Search**.
+3. **Choose what to search** in the dropdown beside it: **Content** (the default) searches the text inside files; **Filenames** searches the names of files and folders instead. See [Searching file and folder names](#searching-file-and-folder-names).
+4. **Press Enter** — from either field — or click **Search**.
 
 Results appear in the left pane **as they are found**, so a long search is useful before it finishes. The status bar counts them up as they arrive.
 
@@ -193,6 +195,27 @@ Inside a file, the count grows faster than that — the same file that had 27 hi
 
 - **PDFs are found but not marked.** A PDF can be returned by a near-match search, but the PDF viewer's own search is exact, so such a file opens and renders with Prev and Next dimmed and nothing highlighted. That is the same thing that happens with a query the viewer cannot search for at all.
 - **The results you already have.** The setting is fixed for the results on screen, as the archive depth is. Changing it takes effect from the next search.
+
+---
+
+## Searching file and folder names
+
+Set the dropdown beside the query field to **Filenames** and the query is matched against **names** rather than contents. Both files and folders are listed — including empty files, which a content search can never find. It is one or the other: a search looks at names or at contents, never both at once.
+
+The query works differently from a content search:
+
+- Each **word** must appear **somewhere in the name**, in any order. `report 2024` finds `2024-Quarterly-Report.pdf`.
+- A word containing `*`, `?` or `[` is a **glob** on the whole name: `*.pdf` lists every PDF, `draft?.txt` finds `draft1.txt`.
+- `"quoted words"` are kept together as one piece: `"my report"` needs the space too.
+- Matching is **case-insensitive**, always.
+- The name is the last part of the path only, so a query cannot contain `/`. To look under a particular folder, set it in the **Folder** row.
+- Regular expressions, `OR`, `NOT` and **Find near matches** do not apply to names.
+
+The **Skip these files and folders** patterns in [Settings](#the-settings-dialog) still apply, so `node_modules`, `.git` and the rest stay out of the list. **Include only these files** does not — it is a list of file types to read, and applied to names it would hide every folder. **Search inside archives** does not apply either.
+
+Selecting a **file** previews it as usual, with nothing highlighted: the query matched its name, not its text. Selecting a **folder** shows a short notice, and **Open** shows that folder in your desktop's file manager.
+
+The dropdown starts on **Content** each time Sonar opens. Switching it after a search does not change the results already on screen; it takes effect from the next search.
 
 ---
 

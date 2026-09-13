@@ -27,6 +27,7 @@ from sonarex.window import (
 
 from conftest import (
     MEMBERS,
+    NOOP_OPENER,
     TRUNCATED_SURVIVOR,
     needs_pdftotext,
     needs_permissions,
@@ -368,40 +369,9 @@ def test_the_open_tooltip_follows_the_selection(conf, tree, search):
 
 
 # -- the folder button -----------------------------------------------------
-
-
-# What the system opener is swapped for while a folder test runs. Absolute, so
-# `_start_detached` has no PATH lookup to do and the argv recorded below is
-# exactly the one the code built; and not the `/bin/true` the `conf` fixture
-# gives the Open command, so the two buttons stay told apart in the recording.
-NOOP_OPENER = "/bin/echo"
-
-
-@pytest.fixture
-def spawned(monkeypatch):
-    """Record what is handed to the system opener instead of running it.
-
-    The folder button's real command is `xdg-open`, and a test that let it run
-    would open a file manager window on whoever's desktop is running the
-    suite.
-
-    The patch lands on `subprocess.Popen` itself, which is the module every
-    other spawn in the app shares — so anything that is not the opener is
-    passed straight through to the real one. Without that, selecting a row
-    would take the preview's own extraction down with it.
-    """
-    calls = []
-    real = viewer.subprocess.Popen
-
-    def spy(argv, **kwargs):
-        if argv[:1] == [NOOP_OPENER]:
-            calls.append(argv)
-            return None
-        return real(argv, **kwargs)
-
-    monkeypatch.setattr(viewer, "SYSTEM_OPEN_COMMAND", NOOP_OPENER)
-    monkeypatch.setattr(viewer.subprocess, "Popen", spy)
-    return calls
+#
+# `spawned` and `NOOP_OPENER` live in conftest.py: Open on a folder row from a
+# name search goes to the same opener, and test_names.py records it the same way.
 
 
 def test_the_folder_button_opens_the_rows_folder(conf, tree, search, spawned):
