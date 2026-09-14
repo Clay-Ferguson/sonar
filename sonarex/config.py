@@ -56,6 +56,13 @@ DEFAULT_EXCLUDED = [
     "*/.nuxt/*",
 ]
 
+# Whether each pattern list is applied at all. On, so a list someone wrote
+# does what it says; the switches exist so a list can be set aside for one
+# search without deleting it and pasting it back afterwards. They are
+# independent: each governs its own list and nothing else.
+DEFAULT_USE_INCLUDED = True
+DEFAULT_USE_EXCLUDED = True
+
 # Whether to search inside archives. Off, because turning it on changes what
 # an ordinary search returns rather than merely adding to it: every compressed
 # file becomes searchable text, and a `copyright` search over /usr/share/doc
@@ -94,7 +101,9 @@ class Settings(NamedTuple):
 
     Adding a setting is a field here, a line in `render_config` and a widget
     in the dialog; nothing has to grow a wider tuple or a positional argument
-    at each call site.
+    at each call site. `use_included` and `use_excluded` are last and
+    defaulted for exactly that reason: the positional constructions that
+    predate them still mean what they did.
     """
 
     included: list[str]
@@ -103,6 +112,8 @@ class Settings(NamedTuple):
     archive_depth: int
     open_command: str
     fuzzy: int
+    use_included: bool = DEFAULT_USE_INCLUDED
+    use_excluded: bool = DEFAULT_USE_EXCLUDED
 
 
 DEFAULTS = Settings(
@@ -112,6 +123,8 @@ DEFAULTS = Settings(
     DEFAULT_ARCHIVE_DEPTH,
     DEFAULT_OPEN_COMMAND,
     DEFAULT_FUZZY,
+    DEFAULT_USE_INCLUDED,
+    DEFAULT_USE_EXCLUDED,
 )
 
 
@@ -142,6 +155,16 @@ INCLUDED_COMMENT = """\
   # default. Adding any entry turns this into a whitelist: only files matching
   # one of these patterns are searched, and everything else is ignored.
   # Examples: ["*.md", "*.txt", "*.py"]
+"""
+
+USE_INCLUDED_COMMENT = """\
+  # Whether the "included" list above is applied. false searches every file,
+  # as if the list were empty, but keeps the list for next time.
+"""
+
+USE_EXCLUDED_COMMENT = """\
+  # Whether the "excluded" list below is applied. false skips nothing, as if
+  # the list were empty, but keeps the list for next time.
 """
 
 EXCLUDED_COMMENT = """\
@@ -236,7 +259,16 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
     extra_search = {
         k: v
         for k, v in search.items()
-        if k not in ("included", "excluded", "archives", "archive_depth", "fuzzy")
+        if k
+        not in (
+            "included",
+            "use_included",
+            "excluded",
+            "use_excluded",
+            "archives",
+            "archive_depth",
+            "fuzzy",
+        )
     }
     extra_open = {k: v for k, v in opening.items() if k != "command"}
     extra_top = {k: v for k, v in config.items() if k not in ("search", "open")}
@@ -245,6 +277,12 @@ def render_config(settings: Settings, config: dict | None = None) -> str:
         FILE_COMMENT
         + "\nsearch:\n"
         + _render_list("included", INCLUDED_COMMENT, settings.included)
+        + "\n"
+        + USE_INCLUDED_COMMENT
+        + f"  use_included: {'true' if settings.use_included else 'false'}\n"
+        + "\n"
+        + USE_EXCLUDED_COMMENT
+        + f"  use_excluded: {'true' if settings.use_excluded else 'false'}\n"
         + "\n"
         + _render_list("excluded", EXCLUDED_COMMENT, settings.excluded)
         + "\n"
@@ -423,12 +461,27 @@ def build_glob_args(excluded: list[str], included: list[str]) -> list[str]:
     return args
 
 
+def active_patterns(config: dict, kind: str) -> list[str]:
+    """The `search.<kind>` list as a search should apply it: `[]` when its
+    `use_<kind>` switch is off.
+
+    The one place the switches are read for searching, so the content search
+    and the name search cannot disagree about whether a list is in force. A
+    list switched off is exactly an empty one to every caller; the patterns
+    stay in the file only so the dialog can give them back.
+    """
+    default = DEFAULT_USE_INCLUDED if kind == "included" else DEFAULT_USE_EXCLUDED
+    if not get_bool(config, "search", f"use_{kind}", default):
+        return []
+    return get_patterns(config, kind)
+
+
 def search_globs() -> list[str]:
     """The `-g` argv for the current config — the one call the search needs."""
     config = load_config()
     return build_glob_args(
-        get_patterns(config, "excluded"),
-        get_patterns(config, "included"),
+        active_patterns(config, "excluded"),
+        active_patterns(config, "included"),
     )
 
 
@@ -473,7 +526,7 @@ def build_prune_args(excluded: list[str]) -> list[str]:
 
 def search_prune_args() -> list[str]:
     """The prune clause for the current config — what a name search needs."""
-    return build_prune_args(get_patterns(load_config(), "excluded"))
+    return build_prune_args(active_patterns(load_config(), "excluded"))
 
 
 def search_depth() -> int:
@@ -554,6 +607,12 @@ def load_settings() -> tuple[Settings, str | None]:
             ),
             open_command=get_string(config, "open", "command", DEFAULT_OPEN_COMMAND),
             fuzzy=get_int(config, "search", "fuzzy", DEFAULT_FUZZY, 0, MAX_FUZZY),
+            use_included=get_bool(
+                config, "search", "use_included", DEFAULT_USE_INCLUDED
+            ),
+            use_excluded=get_bool(
+                config, "search", "use_excluded", DEFAULT_USE_EXCLUDED
+            ),
         ),
         error,
     )

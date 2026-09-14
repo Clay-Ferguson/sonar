@@ -17,6 +17,12 @@ search:
   # Files to search. An EMPTY list means "search everything" (the default).
   included: []
 
+  # Whether "included" is applied. false searches everything but keeps the list.
+  use_included: true
+
+  # Whether "excluded" is applied. false skips nothing but keeps the list.
+  use_excluded: true
+
   # Directories and files to skip.
   excluded:
     - "*/node_modules/*"
@@ -63,6 +69,22 @@ search:
 ```
 
 Patterns are matched against the filename, so `*.md` means "any Markdown file at any depth".
+
+## `search.use_included`
+
+`true` or `false`, default `true`. The checkbox that is the **Include only these files** heading in the settings dialog. With it `false`, every file is searched exactly as if `included` were empty, but the list stays in the file — so a whitelist can be set aside for a search over everything and brought back by ticking the box, with no clearing and re-pasting.
+
+It governs `included` only; `excluded` has its own switch, [`search.use_excluded`](#searchuse_excluded), and the two are independent.
+
+A file written before this key existed has no `use_included` in it and keeps applying its whitelist, and so does a non-boolean value (`"no"`, `0`): a typo must not silently widen every search.
+
+## `search.use_excluded`
+
+`true` or `false`, default `true`. The checkbox that is the **Skip these files and folders** heading in the settings dialog — the mirror image of `use_included`. With it `false`, nothing is skipped, exactly as if `excluded` were empty, but the list stays in the file for when the box is ticked again. It applies to both content searches and file-name searches.
+
+Expect a search with it off to be slower: the default list names the directories that are usually the bulk of a tree.
+
+As with `use_included`, a missing key or a non-boolean value reads as `true`, so a typo never starts searching `node_modules`.
 
 ## `search.excluded`
 

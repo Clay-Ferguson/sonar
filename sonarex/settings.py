@@ -6,7 +6,7 @@ no add/remove/reorder machinery because a text area already does all three,
 and it is the only editor for this that can be used without the mouse.
 
 The layout is a stack of labelled sections in a QVBoxLayout, sized to its
-contents: the next setting is one more `_add_patterns`, `_add_line` or
+contents: the next setting is one more `_add_checked_patterns`, `_add_line` or
 `_add_check` call and the dialog grows to fit it, with no geometry to revisit.
 
 Saving writes the file and nothing else. Both readers go back to the config
@@ -161,12 +161,26 @@ class SettingsDialog(QDialog):
             warning.setWordWrap(True)
             self._layout.addWidget(warning)
 
-        self.included_edit = self._add_patterns(
+        self.included_check, self.included_edit = self._add_checked_patterns(
             "Include only these files (empty = search everything):",
             settings.included,
+            settings.use_included,
+            tooltip=(
+                "Uncheck to search every file, as if this list were empty,\n"
+                "without losing the patterns — check it again to bring them back.\n"
+                "The skip list below has its own checkbox."
+            ),
         )
-        self.excluded_edit = self._add_patterns(
-            "Skip these files and folders:", settings.excluded
+        self.excluded_check, self.excluded_edit = self._add_checked_patterns(
+            "Skip these files and folders:",
+            settings.excluded,
+            settings.use_excluded,
+            tooltip=(
+                "Uncheck to skip nothing — node_modules, .git and the rest are\n"
+                "searched too, which can make a search much slower — without\n"
+                "losing the patterns. Check it again to bring them back.\n"
+                "The include list above has its own checkbox."
+            ),
         )
         self.archives_check = self._add_check(
             "Search inside archives (.zip, .tar.gz, .7z, .gz \u2026)",
@@ -233,7 +247,7 @@ class SettingsDialog(QDialog):
             ),
         )
 
-        # New settings go here — one more `_add_patterns` / `_add_line` /
+        # New settings go here — one more `_add_checked_patterns` / `_add_line` /
         # `_add_check` (or any widget) added before the button row, which stays
         # pinned to the bottom.
 
@@ -262,13 +276,31 @@ class SettingsDialog(QDialog):
         caption.setToolTip(tooltip)
         self._layout.addWidget(caption)
 
-    def _add_patterns(self, label: str, patterns: list[str]) -> PatternEdit:
-        """A labelled pattern field, appended to the stack. Returns the field."""
-        self._begin_section(label)
+    def _add_checked_patterns(
+        self, label: str, patterns: list[str], checked: bool, tooltip: str = ""
+    ) -> tuple[QCheckBox, PatternEdit]:
+        """A pattern field whose caption is a checkbox that switches it off.
+
+        Unchecked, the field is dimmed rather than cleared: its patterns are
+        still saved, only not applied, which is the whole point — a list set
+        aside for one search is there again when the box is ticked. Dim rather
+        than hidden for the same reason as the archive depth: the dialog must
+        not change height under the pointer.
+        """
+        if self._layout.count():
+            self._layout.addSpacing(SECTION_SPACING - LABEL_SPACING)
+        check = QCheckBox(label)
+        check.setChecked(checked)
+        check.setToolTip(tooltip)
+        apply_checkboxes(check)
+        self._layout.addWidget(check)
+
         edit = PatternEdit()
         edit.setPlainText(pattern_lines(patterns))
+        edit.setEnabled(checked)
+        check.toggled.connect(edit.setEnabled)
         self._layout.addWidget(edit)
-        return edit
+        return check, edit
 
     def _add_line(self, label: str, value: str, tooltip: str = "") -> QLineEdit:
         """A labelled single-line field, appended to the stack.
@@ -369,6 +401,8 @@ class SettingsDialog(QDialog):
                 archive_depth=self.depth_combo.currentIndex() + 1,
                 open_command=self.open_edit.text().strip(),
                 fuzzy=self.fuzzy_combo.currentIndex(),
+                use_included=self.included_check.isChecked(),
+                use_excluded=self.excluded_check.isChecked(),
             )
         )
         if error:

@@ -339,10 +339,19 @@ def conf(tmp_path):
         excluded=(),
         open_command="/bin/true",
         fuzzy=0,
+        use_included=True,
+        use_excluded=True,
     ):
         config.save_settings(
             config.Settings(
-                list(included), list(excluded), archives, depth, open_command, fuzzy
+                list(included),
+                list(excluded),
+                archives,
+                depth,
+                open_command,
+                fuzzy,
+                use_included,
+                use_excluded,
             )
         )
         return config.CONFIG_PATH

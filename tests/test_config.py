@@ -51,6 +51,52 @@ def test_unknown_keys_are_carried_through(conf):
     assert text.count("archives:") == 1
     assert text.count("archive_depth:") == 1
     assert text.count("fuzzy:") == 1
+    assert text.count("use_included:") == 1
+    assert text.count("use_excluded:") == 1
+
+
+def test_use_included_off_drops_only_the_whitelist(conf):
+    """The switch sets the inclusions aside; the exclusions stay, and the
+    patterns themselves survive in the file."""
+    conf(included=["*.md"], excluded=["*/build/*"], use_included=True)
+    assert config.search_globs() == ["-g", "!build/", "-g", "*.md"]
+
+    conf(included=["*.md"], excluded=["*/build/*"], use_included=False)
+    assert config.search_globs() == ["-g", "!build/"]
+    assert config.load_settings()[0].included == ["*.md"]
+
+
+def test_use_excluded_off_drops_only_the_exclusions(conf):
+    """The mirror image, and it reaches the name search's prune clause too, so
+    the two modes cannot disagree about whether the list is in force."""
+    conf(included=["*.md"], excluded=["*/build/*"], use_excluded=True)
+    assert config.search_prune_args() == ["(", "-path", "*/build", ")", "-prune", "-o"]
+
+    conf(included=["*.md"], excluded=["*/build/*"], use_excluded=False)
+    assert config.search_globs() == ["-g", "*.md"]
+    assert config.search_prune_args() == []
+    assert config.load_settings()[0].excluded == ["*/build/*"]
+
+
+def test_both_switches_off_is_an_unfiltered_search(conf):
+    conf(included=["*.md"], excluded=["*/build/*"], use_included=False, use_excluded=False)
+    assert config.search_globs() == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param('search:\n  included: ["*.md"]\n', id="absent"),
+        pytest.param('search:\n  included: ["*.md"]\n  use_included: "no"\n', id="string"),
+    ],
+)
+def test_use_included_defaults_on(conf, body):
+    """A file written before the key existed must keep applying its whitelist,
+    and a typo must not silently widen the search."""
+    conf()
+    open(config.CONFIG_PATH, "w").write(body)
+    assert config.load_settings()[0].use_included is True
+    assert config.search_globs() == ["-g", "*.md"]
 
 
 def test_depth_accessor_folds_the_two_keys(conf):
@@ -124,3 +170,19 @@ def test_broken_yaml_is_reported_to_the_dialog(conf):
     open(config.CONFIG_PATH, "w").write("search: [unclosed\n")
     _settings, error = config.load_settings()
     assert error is not None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param('search:\n  excluded: ["*/build/*"]\n', id="absent"),
+        pytest.param('search:\n  excluded: ["*/build/*"]\n  use_excluded: 0\n', id="int"),
+    ],
+)
+def test_use_excluded_defaults_on(conf, body):
+    """As with `use_included`: an old file keeps skipping what it skipped, and
+    a typo must not start searching node_modules."""
+    conf()
+    open(config.CONFIG_PATH, "w").write(body)
+    assert config.load_settings()[0].use_excluded is True
+    assert config.search_globs() == ["-g", "!build/"]

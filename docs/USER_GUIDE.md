@@ -211,7 +211,7 @@ The query works differently from a content search:
 - The name is the last part of the path only, so a query cannot contain `/`. To look under a particular folder, set it in the **Folder** row.
 - Regular expressions, `OR`, `NOT` and **Find near matches** do not apply to names.
 
-The **Skip these files and folders** patterns in [Settings](#the-settings-dialog) still apply, so `node_modules`, `.git` and the rest stay out of the list. **Include only these files** does not — it is a list of file types to read, and applied to names it would hide every folder. **Search inside archives** does not apply either.
+The **Skip these files and folders** patterns in [Settings](#the-settings-dialog) still apply, so `node_modules`, `.git` and the rest stay out of the list — unless that list's checkbox is unticked. **Include only these files** does not — it is a list of file types to read, and applied to names it would hide every folder. **Search inside archives** does not apply either.
 
 Selecting a **file** previews it as usual, with nothing highlighted: the query matched its name, not its text. Selecting a **folder** shows a short notice, and **Open** shows that folder in your desktop's file manager.
 
@@ -385,7 +385,7 @@ Neither one affects a search in progress. A saved setting applies from the next 
 
 ## The Settings dialog
 
-**Options ▸ Settings.** Six settings, saved to a YAML file you can also edit by hand (see [CONFIG.md](CONFIG.md)). **Save** writes them and closes; **Cancel** discards. Enter in the dialog saves.
+**Options ▸ Settings.** Eight settings, saved to a YAML file you can also edit by hand (see [CONFIG.md](CONFIG.md)). **Save** writes them and closes; **Cancel** discards. Enter in the dialog saves.
 
 ### Include only these files (empty = search everything)
 
@@ -401,6 +401,10 @@ The moment you add an entry, only files matching one of these patterns are searc
 
 Patterns match the filename, so `*.md` means "any Markdown file at any depth".
 
+The heading above the list is a **checkbox**, ticked by default. Untick it to search every file — exactly as if the list were empty — without deleting your patterns: the text area dims and keeps them, and ticking the box again brings the whitelist back into force. This is the quick way to widen one search and then narrow back down, with no clearing and re-pasting.
+
+Unticking it affects the include list only. **Skip these files and folders** below has a checkbox of its own, and the two are independent.
+
 ### Skip these files and folders
 
 Directories and files to leave out, one pattern per line, written in `find`-style:
@@ -412,6 +416,10 @@ Directories and files to leave out, one pattern per line, written in `find`-styl
 | `*.log` | skip files by name |
 
 Sonar ships with a generous list — `node_modules`, `.git`, `.venv`, `__pycache__`, `venv`, `.svn`, `.hg`, `build`, `dist`, `.next`, `.nuxt`. Keeping it generous is usually the difference between a search that returns in a second and one that grinds through a hundred thousand irrelevant files.
+
+Like the include list, the heading above it is a **checkbox**, ticked by default. Untick it to skip nothing — exactly as if the list were empty — while the dimmed text area keeps your patterns for when you tick it again. That is how to search inside a `node_modules` or a `build` folder for once without editing the list. Expect such a search to be slower, since those are usually the largest directories in a tree.
+
+The two checkboxes are independent: unticking one leaves the other list in force. Unticking both searches every file under the folder. The skip checkbox applies to [file and folder name searches](#searching-file-and-folder-names) too.
 
 ### Search inside archives
 
@@ -527,7 +535,7 @@ The "files searched" count comes from ugrep itself and is only known once the se
 
 ## Troubleshooting
 
-**A file I know contains the text did not turn up.** Check the **include** patterns first — a non-empty whitelist hides everything that does not match it. Then check **exclude**: the file may be under a skipped directory. Remember too that a query with two terms requires *both*, and that `-term` and `NOT term` exclude.
+**A file I know contains the text did not turn up.** Check the **include** patterns first — a non-empty whitelist hides everything that does not match it. Untick **Include only these files** to set the whitelist aside and see whether the file turns up. Then check **exclude**: the file may be under a skipped directory. Remember too that a query with two terms requires *both*, and that `-term` and `NOT term` exclude.
 
 **My search returns far more than it used to.** **Search inside archives** is probably on. It makes every compressed file on the system searchable text.
 
