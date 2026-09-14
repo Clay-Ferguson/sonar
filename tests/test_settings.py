@@ -112,3 +112,64 @@ def test_a_broken_config_warns_before_it_can_be_overwritten(conf, qtbot):
 
     captions = [label.text() for label in dialog.findChildren(QLabel)]
     assert any("could not be read" in text for text in captions)
+
+
+def test_the_include_checkbox_dims_the_field(conf, qtbot):
+    """Dimmed, not cleared: the patterns have to be there when it is ticked
+    again."""
+    conf(included=["*.md"], use_included=True)
+    dialog = SettingsDialog()
+    qtbot.addWidget(dialog)
+    assert dialog.included_check.isChecked() is True
+    assert dialog.included_edit.isEnabled() is True
+
+    dialog.included_check.setChecked(False)
+    assert dialog.included_edit.isEnabled() is False
+    assert dialog.included_edit.toPlainText() == "*.md"
+    dialog.included_check.setChecked(True)
+    assert dialog.included_edit.isEnabled() is True
+
+
+def test_unticking_include_keeps_the_patterns_but_not_the_whitelist(conf, qtbot):
+    conf(included=["*.md", "*.py"], excluded=["*/build/*"])
+    dialog = SettingsDialog()
+    qtbot.addWidget(dialog)
+    dialog.included_check.setChecked(False)
+    dialog._save()
+
+    settings = config.load_settings()[0]
+    assert settings.use_included is False
+    assert settings.included == ["*.md", "*.py"]
+    assert config.search_globs() == ["-g", "!build/"]
+
+    reopened = SettingsDialog()
+    qtbot.addWidget(reopened)
+    assert reopened.included_check.isChecked() is False
+    assert reopened.included_edit.isEnabled() is False
+    assert reopened.included_edit.toPlainText() == "*.md\n*.py"
+
+
+def test_the_skip_checkbox_dims_the_field_and_keeps_the_patterns(conf, qtbot):
+    conf(included=["*.md"], excluded=["*/build/*"])
+    dialog = SettingsDialog()
+    qtbot.addWidget(dialog)
+    assert dialog.excluded_check.isChecked() is True
+    assert dialog.excluded_edit.isEnabled() is True
+
+    dialog.excluded_check.setChecked(False)
+    assert dialog.excluded_edit.isEnabled() is False
+    # Independent of the include box, which stays as it was.
+    assert dialog.included_edit.isEnabled() is True
+    dialog._save()
+
+    settings = config.load_settings()[0]
+    assert settings.use_excluded is False
+    assert settings.use_included is True
+    assert settings.excluded == ["*/build/*"]
+    assert config.search_globs() == ["-g", "*.md"]
+
+    reopened = SettingsDialog()
+    qtbot.addWidget(reopened)
+    assert reopened.excluded_check.isChecked() is False
+    assert reopened.excluded_edit.isEnabled() is False
+    assert reopened.excluded_edit.toPlainText() == "*/build/*"
