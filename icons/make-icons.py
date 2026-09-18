@@ -2,7 +2,8 @@
 """Regenerate the installable PNG icon set from sonar-icon.jpeg.
 
 Only needed when the source artwork changes; the PNGs it writes are checked
-in, so install.sh never has to convert anything (and never needs Pillow).
+in, so build-deb-install.sh never has to convert anything (and never needs
+Pillow).
 
     uv run --with pillow icons/make-icons.py
 

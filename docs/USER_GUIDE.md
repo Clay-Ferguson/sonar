@@ -11,6 +11,7 @@ This guide covers everything the window does. For the configuration file in deta
 ## Contents
 
 - [Before you start](#before-you-start)
+- [Installing Sonar](#installing-sonar)
 - [Starting Sonar](#starting-sonar)
 - [The window at a glance](#the-window-at-a-glance)
 - [Running a search](#running-a-search)
@@ -53,30 +54,43 @@ If ugrep is missing, Sonar shows a dialog saying so and exits rather than starti
 
 ---
 
-## Starting Sonar
+## Installing Sonar
 
-From the project directory:
+The easiest way is the Debian package. If you have a `sonarex_…_all.deb` file, install it with:
 
 ```bash
-./start.sh                      # start on the current directory
-./start.sh /path/to/folder      # start on a particular folder
+sudo apt install ./sonarex_0.1.0_all.deb
+```
+
+`apt` fetches everything Sonar needs along with it, ugrep included. To build the package yourself, run `./build-deb-install.sh` in the Sonar folder; the file lands in `dist/`.
+
+Afterwards, "Sonar" appears in your application grid, dock and alt-tab like any other app. Launched that way it opens on your current working directory, with the folder row editable as always.
+
+To remove it, run `sudo apt remove sonarex`. Your settings are untouched.
+
+### Running from the Sonar folder instead
+
+The package is the only way to install Sonar. If you'd rather run it straight from its folder — to work on it, say — there's nothing to install: you just need Python 3.11 or newer and [uv](https://docs.astral.sh/uv/). If you don't have `uv`:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Run that way, Sonar won't appear in your application launcher — that entry comes with the package.
+
+---
+
+## Starting Sonar
+
+Type `sonarex` if you installed the package, or run `./start.sh` from the Sonar folder. Either way you can name a folder, or let it use the one you're in:
+
+```bash
+sonarex                         # installed: start on the current directory
+sonarex /path/to/folder         # or start on a particular folder
+./start.sh                      # from a checkout: the same default
 ```
 
 The folder is the **only** argument, and all it does is prefill the **Folder** row. Nothing is searched automatically — a search always needs a query, and the query only ever comes from the window. If you pass a path to a *file*, Sonar starts on the folder containing it. If you pass a path that does not exist, Sonar warns you and starts on the current directory instead.
-
-### Adding Sonar to your application launcher
-
-```bash
-./install.sh
-```
-
-This asks where Sonar lives (press Enter to accept the directory it is run from), then installs a desktop entry and the application icons into your home directory. Sonar then appears in your application grid, dock and alt-tab like any other app. Launched that way it opens on your current working directory, with the folder row editable as always.
-
-```bash
-./uninstall.sh
-```
-
-removes the desktop entry and the icons again. Your configuration file is left alone.
 
 ---
 
@@ -564,8 +578,9 @@ The "files searched" count comes from ugrep itself and is only known once the se
 | Path | What |
 |---|---|
 | `~/.config/sonarex/sonarex-config.yaml` | your settings; created with defaults on first run |
-| `~/.local/share/applications/sonarex.desktop` | the launcher entry, if you ran `install.sh` |
-| `~/.local/share/icons/hicolor/*/apps/sonarex.png` | the application icons, likewise |
+| `/usr/lib/sonarex/` | the program itself, if you installed the package |
+| `/usr/share/applications/sonarex.desktop` | the launcher entry, likewise |
+| `/usr/share/icons/hicolor/*/apps/sonarex.png` | the application icons, likewise |
 | a temporary directory | read-only copies of archive members you opened, removed when Sonar closes |
 
 Sonar writes nothing else, and never modifies the files it searches.

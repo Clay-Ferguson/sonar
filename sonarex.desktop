@@ -1,7 +1,9 @@
+# Template only. build-deb-install.sh rewrites Exec= and Icon= for where it is
+# installing to, so the paths below are never used.
 [Desktop Entry]
 Name=Sonar
 Comment=Search file contents recursively under a folder
-Exec=/home/clay/ferguson/projects/sonar/start.sh
+Exec=/path/to/sonar/start.sh
 Icon=sonarex
 Terminal=false
 Type=Application

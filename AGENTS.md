@@ -16,7 +16,9 @@ The modules are heavily commented, and the comments record *why* (usually with m
 
 `start.sh` runs through `uv`; `pyproject.toml` sets `package = false`, so there is no install step and edits are live. `windowchrome` is a **sibling checkout** (`[tool.uv.sources]` → `../windowchrome`, editable) — it must exist or `uv run` fails.
 
-The folder is the only CLI argument and only prefills the folder row; no search ever runs automatically. Startup failures are `QMessageBox`es, not argparse/stderr errors, because the app is launched from a desktop icon.
+The folder is the only CLI argument, is optional (`nargs="?"` → the current directory), and only prefills the folder row; no search ever runs automatically. Startup failures are `QMessageBox`es, not argparse/stderr errors, because the app is launched from a desktop icon — which is also why the argument must stay optional.
+
+Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` under `python3 -I`, so neither `PYTHONPATH` nor pip user installs can shadow the distribution's PyQt6. See `build-deb-install.sh`.
 
 ## Layout
 
@@ -39,6 +41,7 @@ The folder is the only CLI argument and only prefills the folder row; no search 
 - **Do not style the title bar or window frame**, and keep the window title just the app name (search numbers belong in the status bar; `test_the_title_bar_is_only_the_app_name` guards it). Title-bar coloring was removed as too fragile.
 - **Do not restyle the rendered help documents** (link colors, code backgrounds, injected anchors). Modifying the document once stopped Qt's layout part way, rendering sections as blank space. `tests/test_help.py::test_the_whole_document_is_laid_out` is the only guard and must run against the real `docs/` — don't delete it.
 - **`docs/` is runtime content.** Renaming a heading changes its slug and breaks links (including the guide's Contents). Run `tests/test_help.py` before and after editing docs. Don't add non-help markdown under `docs/`; the link test globs it.
+- **The `.deb` copies files one directory at a time.** `build-deb-install.sh` installs `sonarex/`, a copy of `windowchrome/`, and `docs/` (with `docs/img/`) under `/usr/lib/sonarex/`, plus the hicolor icons. A new subpackage, or a new file type under `docs/`, needs its own `install -d`/`install -m 644` line or it silently won't ship — a package that installs cleanly and fails on first use. `docs/` must stay beside the package, because `help.DOCS_DIR` resolves it that way. The Debian package and the Python package are both `sonarex`, but the program and its repository are "Sonar".
 - **No shells.** ugrep, find, `--filter` and the user's Open command all run as argv lists (`shlex` for the Open command). Never `shell=True` — the command comes from a text field.
 - **Config loading must never raise.** Bad or missing config degrades to "no patterns". Saving rewrites the whole file (comments included) via temp file + `os.replace`.
 - **Anything a preview or Open needs is pinned at search start** (`_search_root`, `_search_query`, `_search_depth`, `_search_fuzzy`, `_search_names`), not re-read from config. A member found at depth 3 is unreachable at depth 1; the wrong fuzziness silently highlights nothing. Tests at the wrong depth/fuzziness exist to stop this being "simplified".
@@ -76,6 +79,6 @@ Each of these is verified and explained at its site; listed here because they ar
 
 Before writing tests, read `tests/README.md` (fixtures, the autouse `dialogs` fixture that stops `QMessageBox` hanging the run, and what is worth covering per feature). Also run `../windowchrome/tests/` when touching help rendering.
 
-Syntax checks: `python3 -m py_compile sonarex/*.py` and `bash -n start.sh install.sh uninstall.sh`.
+Syntax checks: `python3 -m py_compile sonarex/*.py` and `bash -n start.sh build-deb-install.sh`.
 
 

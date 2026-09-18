@@ -23,7 +23,10 @@ from .style import action_button
 # `docs/` sits beside the package, not inside it. That is safe rather than
 # lucky: `pyproject.toml` sets `package = false` and `start.sh` runs the app
 # out of the tree with `uv run --directory`, so there is no wheel this could
-# be missing from and nothing for `importlib.resources` to improve on.
+# be missing from and nothing for `importlib.resources` to improve on. The
+# one thing that *does* have to keep up is `build-deb-install.sh`, which
+# installs `docs/` into /usr/lib/sonarex beside the package for this reason —
+# a new file referenced from here needs a line there too.
 DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 
 
