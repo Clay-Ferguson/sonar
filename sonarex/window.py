@@ -35,7 +35,7 @@ from windowchrome import apply_checkboxes, apply_scrollbars, close_markdown_wind
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
-from .config import search_depth, search_fuzzy
+from .config import search_depth, search_fuzzy, search_pattern_problems
 from .help import show_query_syntax, show_user_guide
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
@@ -613,6 +613,19 @@ class MainWindow(QMainWindow):
         if names and not name_terms(query):
             # Nothing but empty quotes: there is no word to look for.
             self.query_edit.setFocus()
+            return
+
+        # The config file can be edited by hand, so the dialog's own check on
+        # Save is not enough. A bad pattern never makes ugrep or find fail —
+        # it silently lists nothing, or skips nothing — so it is refused here,
+        # where the user can be told which line to fix.
+        problems = search_pattern_problems(names)
+        if problems:
+            self._report_problem(
+                "The search patterns in the settings need fixing first:\n\n"
+                + "\n\n".join(problems)
+                + "\n\nChange them under Options ▸ Settings."
+            )
             return
 
         folder = self._folder()

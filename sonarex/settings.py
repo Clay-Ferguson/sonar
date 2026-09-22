@@ -43,6 +43,7 @@ from .config import (
     load_settings,
     parse_pattern_lines,
     pattern_lines,
+    pattern_problems,
     save_settings,
 )
 from .style import (
@@ -393,10 +394,20 @@ class SettingsDialog(QDialog):
 
     def _save(self) -> None:
         """Write every field back, and close only if that worked."""
+        included = parse_pattern_lines(self.included_edit.toPlainText())
+        excluded = parse_pattern_lines(self.excluded_edit.toPlainText())
+        # Checked whether or not a list's box is ticked: its patterns are
+        # saved either way, and would stop every search the moment it was.
+        problems = pattern_problems(included, excluded)
+        if problems:
+            QMessageBox.warning(
+                self, f"{APP_NAME} — Settings", "\n\n".join(problems)
+            )
+            return
         error = save_settings(
             Settings(
-                included=parse_pattern_lines(self.included_edit.toPlainText()),
-                excluded=parse_pattern_lines(self.excluded_edit.toPlainText()),
+                included=included,
+                excluded=excluded,
                 archives=self.archives_check.isChecked(),
                 archive_depth=self.depth_combo.currentIndex() + 1,
                 open_command=self.open_edit.text().strip(),

@@ -10,10 +10,21 @@ is a thing that has been moved twice and should stay put.
 
 from __future__ import annotations
 
-from helpers import labels, searching, status
-from sonarex.search import STATS_FILES, SearchRunner
+import os
+
+import pytest
+
+from helpers import labels, searching, select, status
+from sonarex import search as search_module
+from sonarex.search import (
+    MODE_CONTENT,
+    MODE_NAMES,
+    STATS_FILES,
+    SearchRunner,
+    name_search_error,
+)
 from sonarex.style import STATUS_BAR_MARGINS
-from sonarex.window import SPINNER_FRAMES, STATUS_READY
+from sonarex.window import SPINNER_FRAMES, STATUS_FAILED, STATUS_READY, MainWindow
 
 
 # -- telling the stats block from a result ---------------------------------
@@ -171,3 +182,106 @@ def test_the_title_bar_is_only_the_app_name(conf, tree, search):
     for query in ("needle", "zzzznothingzzz"):
         window = search(tree, query)
         assert window.windowTitle() == "Sonar"
+
+
+# -- what reaches stdout, and in what shape --------------------------------
+
+
+@pytest.mark.parametrize("archives", [False, True], ids=["plain", "archives"])
+def test_odd_characters_in_a_filename_are_one_row(conf, tmp_path, search, archives):
+    """`_read_stdout` splits on "\\n" only. splitlines() would also split on
+    \\v, \\f and \\x85, which are legal in a name, and a tab is what the
+    archive format puts between a path and its member."""
+    names = ["vert\vtab.txt", "next\x85line.txt", "form\ffeed.txt", "has\ttab.txt"]
+    for name in names:
+        (tmp_path / name).write_bytes(b"odd needle\n")
+    conf(archives=archives)
+    window = search(str(tmp_path), "needle")
+    assert sorted(labels(window)) == sorted(names)
+    for name in names:
+        select(window, name)
+        assert window.preview.toPlainText() == "odd needle\n"
+
+
+def test_odd_characters_in_a_name_search(conf, tmp_path, search):
+    names = ["vert\vneedle.txt", "has\tneedle.txt"]
+    for name in names:
+        (tmp_path / name).write_bytes(b"")
+    conf(archives=False)
+    assert sorted(labels(search(str(tmp_path), "needle", MODE_NAMES))) == sorted(names)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="stdout is decoded with 'replace', so a name that is not UTF-8 "
+    "becomes a path that does not exist, and the end-of-search sort drops it",
+)
+def test_a_name_that_is_not_utf8_is_still_a_row(conf, tmp_path, search):
+    (tmp_path / "plain.txt").write_bytes(b"needle\n")
+    with open(os.path.join(os.fsencode(tmp_path), b"lat\xe9.txt"), "wb") as handle:
+        handle.write(b"latin needle\n")
+    conf(archives=False)
+    window = search(str(tmp_path), "needle")
+    assert len(labels(window)) == 2
+
+
+def test_a_large_result_set_arrives_whole(conf, tmp_path, search):
+    """Enough output to cross many pipe reads, so lines are split mid-way and
+    have to be re-joined from the held tail: every row arrives exactly once,
+    and none is two half-paths."""
+    long = "x" * 180
+    # A folder of its own: `conf` keeps its config file in tmp_path.
+    folder = tmp_path / "many"
+    folder.mkdir()
+    for number in range(3000):
+        (folder / f"{number:04d}-{long}.txt").write_bytes(b"needle\n")
+    conf(archives=False)
+    window = search(str(folder), "needle")
+    rows = labels(window)
+    assert len(rows) == len(set(rows)) == 3000
+    assert all(row.endswith(f"-{long}.txt") and len(row) == 5 + len(long) + 4 for row in rows)
+    assert window._runner.files_searched() == 3000
+
+
+# -- a program that is not there -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mode, builder, program",
+    [(MODE_CONTENT, "build_argv", "ugrep"), (MODE_NAMES, "build_name_argv", "find")],
+)
+def test_a_missing_program_is_reported(
+    conf, tree, qtbot, monkeypatch, dialogs, mode, builder, program
+):
+    conf(archives=False)
+    monkeypatch.setattr(search_module, builder, lambda *_: ["/nonexistent/program"])
+    window = MainWindow(tree)
+    qtbot.addWidget(window)
+    window.query_edit.setText("needle")
+    window.mode_combo.setCurrentText(mode)
+    with qtbot.waitSignal(window._runner.finished, timeout=5000):
+        window.start_search()
+    assert len(dialogs) == 1
+    assert f"Could not run {program}" in dialogs[0][1]
+    assert status(window) == STATUS_FAILED
+    assert not searching(window)
+
+
+# -- telling a skipped path from a failed name search ----------------------
+
+
+@pytest.mark.parametrize(
+    "stderr, expected",
+    [
+        pytest.param("find: '/t/blocked': Permission denied", "", id="permission-denied"),
+        pytest.param("find: '/t/gone': No such file or directory", "", id="vanished"),
+        pytest.param("", "", id="nothing-said"),
+        pytest.param(
+            "find: '/t/blocked': Permission denied\nfind: unknown predicate `-bogus'",
+            "find: unknown predicate `-bogus'",
+            id="a-real-error-beside-a-warning",
+        ),
+    ],
+)
+def test_name_search_error_keeps_only_real_failures(stderr, expected):
+    assert name_search_error(stderr) == expected

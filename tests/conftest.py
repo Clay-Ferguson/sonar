@@ -274,6 +274,46 @@ def colon_tree(tmp_path_factory):
     return str(root)
 
 
+@pytest.fixture(scope="session")
+def pattern_tree(tmp_path_factory):
+    """A tree for the include/exclude lists, run for real in both modes.
+
+    One file per shape of pattern the config documents: a directory skipped by
+    basename at any depth (`node_modules`, including one nested below another
+    folder), a nested path (`src/generated`, beside an `other/generated` that
+    must survive it), a file skipped by name (`app.log`), and the two
+    extensions a whitelist chooses between. Every name also carries the word
+    `needle`, and so does every file's text, so the one query finds the same
+    set in either mode and a difference between them is a pattern's doing.
+
+    The zip is deflated and padded, as `fuzzy_tree`'s is, and its members'
+    names leave the word out — a zip keeps member names uncompressed, so
+    `needle-x.md` in its directory would match a raw search with -z off.
+    """
+    root = tmp_path_factory.mktemp("patterns")
+    files = [
+        "needle-a.md",
+        "needle-b.txt",
+        "needle-app.log",
+        "node_modules/needle-mod.txt",
+        "pkg/node_modules/needle-deep.txt",
+        "src/generated/needle-gen.txt",
+        "other/generated/needle-other.txt",
+    ]
+    for name in files:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(b"a needle in here\n")
+    _write_zip(
+        root / "needle-bundle.zip",
+        {
+            "x.md": (FUZZY_PADDING + "zipped needle markdown\n").encode(),
+            "y.txt": (FUZZY_PADDING + "zipped needle text\n").encode(),
+        },
+        compress=zipfile.ZIP_DEFLATED,
+    )
+    return str(root)
+
+
 # Enough filler around the zipped member to make deflate actually smaller than
 # the input. It matters: a small member is *stored* even when deflate is asked
 # for, and stored bytes match a raw byte search with -z off — which would put

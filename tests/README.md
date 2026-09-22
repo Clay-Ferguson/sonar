@@ -8,13 +8,14 @@ Run with `./tests/run.sh` (see `AGENTS.md`). These are integration tests: they r
 
 `conftest.py` builds every fixture archive from the standard library into pytest's `tmp_path`, so nothing is checked in. `helpers.py` reads the window back — `labels()`, `highlighted()`, `select()`, `nav()`, `status()`, `searching()`. The `spawned` fixture and `NOOP_OPENER` record what Open or the folder button hands to the system opener. `search(folder, query, mode)` sets the mode dropdown.
 
-Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`.
+Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`.
 
 ## Fixtures worth knowing
 
 - `tree` — the archive tree. Its zip entries are **stored, not deflated**, on purpose: that is what makes it match a raw byte search with `-z` off, which `test_a_zip_is_one_opaque_row_when_off` pins. Deflate it and that test passes for the wrong reason.
 - `fuzzy_tree` — four spellings of one word at *stated* edit distances from `color`, so a search returns an exactly known set at every setting. Its zip is deflated and padded on purpose: a small member is stored even when deflate is asked for, and stored bytes would match a raw search with `-z` off.
 - `name_tree` — for Filenames mode: a folder, an empty file, a mixed-case name, and a file with the word only in its content (content mode lists it, names mode must not).
+- `pattern_tree` — for the include/exclude lists, run for real in both modes: `node_modules` at two depths, `src/generated` beside `other/generated`, a `.log`, a `.md` and a `.txt`, and a zip holding one of each. Every *name* and every file's text carries `needle`, so both modes find the same set and a difference is the pattern's doing. The zip's member names leave the word out on purpose — a zip stores its names uncompressed, and they would match a raw search with `-z` off.
 - `conf` — writes a config and points `config.CONFIG_PATH` at a temp file, so no test reaches the real `~/.config`. It is read at call time, so rebinding the module attribute is enough.
 - `dialogs` — **autouse, and load-bearing.** A `QMessageBox` still blocks for a click under `offscreen`, so one raised by code under test hangs the run instead of failing it. This intercepts them and hands back what would have been shown, which is also how to assert a problem *was* reported.
 

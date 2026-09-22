@@ -8,14 +8,23 @@ would have been told to do.
 
 from __future__ import annotations
 
+import io
 import os
+import tarfile
 
 import pytest
 
 from helpers import highlighted, labels, nav, searching, select, status
+from sonarex import search as search_module
 from sonarex import viewer
 from sonarex.archive import Hit
-from sonarex.search import build_argv
+from sonarex.search import (
+    ARCHIVE_MATCH_FORMAT,
+    MATCH_FORMAT,
+    PDF_FILTER,
+    build_argv,
+    build_match_argv,
+)
 from sonarex.viewer import read_for_preview
 from sonarex.window import (
     FOLDER_TIP,
@@ -23,6 +32,7 @@ from sonarex.window import (
     HIT_ROLE,
     OPEN_TIP,
     OPEN_TIP_ARCHIVED,
+    MainWindow,
 )
 
 from conftest import (
@@ -160,6 +170,36 @@ def test_a_tarball_member_previews(conf, tree, search):
     window = search(tree, "needle")
     select(window, "bundle.tar.gz → doc/one.txt")
     assert window.preview.toPlainText() == MEMBERS["doc/one.txt"].decode()
+
+
+# -- more container formats ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, mode",
+    [
+        ("bundle.tar.bz2", "w:bz2"),
+        ("bundle.tar.xz", "w:xz"),
+        ("bundle.tgz", "w:gz"),
+        ("bundle.tar", "w"),
+    ],
+)
+def test_other_tarball_formats_are_searched(conf, tmp_path, search, name, mode):
+    folder = tmp_path / "formats"
+    folder.mkdir()
+    with tarfile.open(folder / name, mode) as handle:
+        for member in ("doc/one.txt", "doc/sub/one.txt"):
+            data = MEMBERS[member]
+            info = tarfile.TarInfo(member)
+            info.size = len(data)
+            handle.addfile(info, io.BytesIO(data))
+    conf(archives=True)
+    window = search(str(folder), "needle")
+    assert sorted(labels(window)) == [f"{name} → doc/one.txt", f"{name} → doc/sub/one.txt"]
+
+    select(window, f"{name} → doc/sub/one.txt")
+    assert window.preview.toPlainText() == MEMBERS["doc/sub/one.txt"].decode()
+    assert highlighted(window) == ["needle"]
 
 
 # -- Prev/Next -------------------------------------------------------------
@@ -525,3 +565,151 @@ def test_repeated_searches_do_not_interleave(conf, tree, search, qtbot):
     rows = labels(window)
     assert len(rows) == len(set(rows))
     assert sorted(rows) == ARCHIVED_ROWS
+
+
+# -- the argv, pinned whole ------------------------------------------------
+
+
+def test_argv_with_everything_on(conf, monkeypatch):
+    """Every optional flag at once, in order: archives, fuzzy, the config's
+    globs, then `--stats` directly before the `--` that ends the options."""
+    conf(archives=True, depth=2, fuzzy=1, included=["*.md"], excluded=["*/build/*"])
+    monkeypatch.setattr(search_module.shutil, "which", lambda _name: None)
+    assert build_argv("q", "/f") == [
+        "ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files",
+        "-z", "--zmax=2", "--separator=\t", "--format=%f%s%z%~",
+        "--fuzzy=1",
+        "-g", "!build/", "-g", "*.md",
+        "--stats", "--", "q", "/f",
+    ]
+
+
+def test_argv_carries_the_pdf_filter_only_when_pdftotext_is_there(conf, monkeypatch):
+    conf(archives=False)
+    monkeypatch.setattr(search_module.shutil, "which", lambda _name: None)
+    assert PDF_FILTER not in build_argv("q", "/f")
+    monkeypatch.setattr(search_module.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert PDF_FILTER in build_argv("q", "/f")
+
+
+def test_match_argv_for_a_plain_file(conf):
+    """The config's globs are set and must not appear: `-g` filters a file
+    named on the command line too, so they would hide the very file whose
+    matches are wanted."""
+    conf(archives=True, included=["*.md"], excluded=["*/build/*"])
+    assert build_match_argv("q", Hit("/f/a.md"), 0) == [
+        "ugrep", "-i", "-%", "--files", "-o", "-u", "--tabs=1",
+        MATCH_FORMAT, "--", "q", "/f/a.md",
+    ]
+
+
+def test_match_argv_for_a_member(conf):
+    conf(archives=True, included=["*.md"], excluded=["*/build/*"])
+    assert build_match_argv("q", Hit("/f/d.zip", "doc/a[1].txt"), 2, fuzzy=1) == [
+        "ugrep", "-i", "-%", "--files", "-o", "-u", "--tabs=1",
+        "-z", "--zmax=2", "--no-messages", "--separator=\t", ARCHIVE_MATCH_FORMAT,
+        "-g", "a?1?.txt",
+        "--fuzzy=1",
+        "--", "q", "/f/d.zip",
+    ]
+
+
+# -- what a search pins ----------------------------------------------------
+
+
+def test_the_preview_uses_the_query_the_search_ran(conf, tree, search):
+    """Typing a new query without pressing Search must not re-highlight the
+    results of the old one with it."""
+    conf(archives=True)
+    window = search(tree, "alpha")
+    window.query_edit.setText("second")
+    select(window, "docs.zip → doc/one.txt")
+    assert highlighted(window) == ["alpha"]
+
+
+def test_the_rows_stay_relative_to_the_folder_searched(conf, tree, search, tmp_path):
+    conf(archives=False)
+    window = search(tree, "loose")
+    window.folder_edit.setText(str(tmp_path))
+    item = select(window, "loose.txt")
+    assert item.data(HIT_ROLE) == Hit(os.path.join(tree, "loose.txt"))
+    assert window.preview.toPlainText() == "loose needle on disk\n"
+
+
+# -- the folder row --------------------------------------------------------
+
+
+def test_a_folder_that_is_not_there_is_reported(conf, tmp_path, qtbot, dialogs):
+    conf(archives=False)
+    window = MainWindow(str(tmp_path))
+    qtbot.addWidget(window)
+    window.query_edit.setText("needle")
+    window.folder_edit.setText(str(tmp_path / "missing"))
+    window.start_search()
+    assert len(dialogs) == 1 and dialogs[0][1].startswith("Not a folder")
+    assert not window._runner.is_running()
+
+
+def test_a_tilde_folder_is_expanded(conf, tree, search, monkeypatch):
+    """Every path ugrep prints has to be absolute — it is how a hit is told
+    from the stats block — so the folder is expanded before ugrep sees it."""
+    conf(archives=False)
+    monkeypatch.setenv("HOME", os.path.dirname(tree))
+    window = search(os.path.join("~", os.path.basename(tree)), "loose")
+    assert labels(window) == ["loose.txt"]
+    assert window._search_root == tree
+
+
+def test_a_relative_folder_is_made_absolute(conf, tree, search, monkeypatch):
+    conf(archives=False)
+    monkeypatch.chdir(os.path.dirname(tree))
+    window = search(os.path.basename(tree), "loose")
+    assert labels(window) == ["loose.txt"]
+    assert window.results.item(0).data(HIT_ROLE) == Hit(os.path.join(tree, "loose.txt"))
+
+
+# -- the end-of-search sort ------------------------------------------------
+
+
+def test_the_sort_drops_a_vanished_file_and_keeps_the_selection(conf, tmp_path, search):
+    folder = tmp_path / "three"
+    folder.mkdir()
+    for age, name in enumerate(["new.txt", "mid.txt", "old.txt"]):
+        (folder / name).write_bytes(b"needle\n")
+        os.utime(folder / name, (1577836800 - age * 86400,) * 2)
+    conf(archives=False)
+    window = search(str(folder), "needle")
+    assert labels(window) == ["new.txt", "mid.txt", "old.txt"]
+
+    select(window, "old.txt")
+    (folder / "mid.txt").unlink()
+    window._sort_by_mtime()
+
+    assert labels(window) == ["new.txt", "old.txt"]
+    assert window.results.currentItem().text() == "old.txt"
+
+
+# -- loose files that are not worth showing --------------------------------
+
+
+@pytest.mark.parametrize(
+    "data, starts",
+    [
+        pytest.param(b"", "(empty file)", id="empty"),
+        pytest.param(b"needle\x00\x01\x02", "Binary file", id="binary"),
+        pytest.param(b"needle line\n" * 200_000, "File is too large to preview", id="over-cap"),
+    ],
+)
+def test_a_loose_file_notice(tmp_path, data, starts):
+    path = tmp_path / "f.txt"
+    path.write_bytes(data)
+    text, is_notice = read_for_preview(Hit(str(path)))
+    assert is_notice
+    assert text.startswith(starts)
+
+
+def test_bad_utf8_is_shown_with_replacements(tmp_path):
+    """One undecodable byte is not a reason to refuse the rest of the file."""
+    path = tmp_path / "latin.txt"
+    path.write_bytes(b"caf\xe9 needle\n")
+    assert read_for_preview(Hit(str(path))) == ("caf� needle\n", False)

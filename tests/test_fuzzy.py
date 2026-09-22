@@ -124,3 +124,13 @@ def test_the_preview_needs_the_setting_the_search_ran_with(conf, fuzzy_tree):
 
     assert match_spans("color", hit, 0, 1) == {0: [(5, 6)]}
     assert match_spans("color", hit, 0, 0) == {}
+
+
+def test_turning_fuzzy_off_after_a_search_keeps_the_highlight(conf, fuzzy_tree, search):
+    """The window-level half of the test above: saving the dialog between a
+    search and a click must not strip the highlight from a listed row."""
+    conf(archives=False, fuzzy=1)
+    window = search(fuzzy_tree, "color")
+    conf(archives=False, fuzzy=0)
+    select(window, "near.txt")
+    assert highlighted(window) == ["colour"]

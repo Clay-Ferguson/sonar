@@ -112,3 +112,39 @@ def test_a_colon_in_a_name_is_not_a_level_at_depth_one(conf, colon_tree, search)
     select(window, "odd.zip → notes:draft.txt")
     assert window.preview.toPlainText() == "colon needle here\n"
     assert highlighted(window) == ["needle"]
+
+
+# -- the levels in between ---------------------------------------------------
+
+
+def test_depth_two_stops_one_short(conf, nested_tree, search):
+    """At --zmax=2 the tarball is opened and the zip inside it is not. That zip
+    is *stored*, so its raw bytes still hold the word: it is listed as one
+    opaque member, and previews as the binary it is at this depth."""
+    conf(archives=True, depth=2)
+    window = search(nested_tree, "needle")
+    middle = "L1.zip → L2.tar.gz → L3.zip"
+    assert sorted(labels(window)) == sorted([middle, TOP_ROW])
+
+    select(window, middle)
+    assert window.preview.toPlainText() == "Binary file — cannot preview."
+    assert nav(window) == (False, "")
+
+
+def test_lowering_the_depth_after_a_search_changes_nothing_on_screen(
+    conf, nested_tree, search
+):
+    """The window-level half of the pinning test above: the settings dialog
+    can be saved between a search and a click on one of its rows, and the row
+    must still be read at the depth that found it."""
+    conf(archives=True, depth=3)
+    window = search(nested_tree, "needle")
+    conf(archives=True, depth=1)
+    select(window, DEEP_ROW)
+    assert window.preview.toPlainText() == DEEP_TEXT
+    assert highlighted(window) == ["needle", "needle"]
+
+    # Turning archives off altogether, likewise.
+    conf(archives=False)
+    select(window, TOP_ROW)
+    assert window.preview.toPlainText() == "plain needle at level one\n"

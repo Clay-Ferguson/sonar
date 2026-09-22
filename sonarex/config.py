@@ -154,6 +154,7 @@ INCLUDED_COMMENT = """\
   # Files to search. An EMPTY list means "search everything", which is the
   # default. Adding any entry turns this into a whitelist: only files matching
   # one of these patterns are searched, and everything else is ignored.
+  # Patterns match a file's NAME at any depth, so they cannot contain "/".
   # Examples: ["*.md", "*.txt", "*.py"]
 """
 
@@ -169,7 +170,9 @@ USE_EXCLUDED_COMMENT = """\
 
 EXCLUDED_COMMENT = """\
   # Directories and files to skip. Written in find's -path style; Sonar
-  # translates them into ugrep's glob syntax.
+  # translates them into ugrep's glob syntax. A pattern containing "/" must
+  # start with "*/" ("*/build/*", "*/docs/*.tmp"); one without "/" matches a
+  # file or folder name at any depth ("*.log").
 """
 
 ARCHIVES_COMMENT = """\
@@ -434,7 +437,14 @@ def convert_excluded_pattern(pattern: str) -> str:
 
         */node_modules/*   ->  !node_modules/
         */a/b/*            ->  !**/a/b/**
+        */docs/*.tmp       ->  !**/docs/*.tmp
         *.log              ->  !*.log
+
+    A leading `*/` has to become `**/` whatever follows it: ugrep's `*` never
+    crosses a '/', so `!*/docs/*.tmp` matches nothing at all (verified), while
+    find's `-path */docs/*.tmp` skips those files — the two modes disagreed.
+    Any other pattern with a '/' is refused by `pattern_problems` before it
+    gets here.
     """
     if pattern.startswith("*/") and pattern.endswith("/*"):
         middle = pattern[2:-2]
@@ -443,6 +453,8 @@ def convert_excluded_pattern(pattern: str) -> str:
             return f"!{middle}/"
         # A nested path only means anything as a full-pathname glob.
         return f"!**/{middle}/**"
+    if pattern.startswith("*/"):
+        return f"!**/{pattern[2:]}"
     return f"!{pattern}"
 
 
@@ -476,6 +488,50 @@ def active_patterns(config: dict, kind: str) -> list[str]:
     return get_patterns(config, kind)
 
 
+def pattern_problems(included: list[str], excluded: list[str]) -> list[str]:
+    """One message per pattern that cannot do what it says; `[]` if none.
+
+    Both lists fail *silently* on a bad '/', which is why this exists rather
+    than leaving ugrep to complain — it never does (all verified, 7.5.0):
+
+      included  Any '/' at all. The folder is passed absolute, so `docs/*.md`
+                matches no path ever printed — and ugrep then lists nothing,
+                even for the other patterns beside it: one such line empties
+                every search. `**/gen/*` narrows the whole list to that folder
+                instead. Neither is needed: a pattern matches the file's name
+                at any depth, so `*.md` already means `**/*.md`.
+      excluded  A '/' without a leading `*/`. `docs/*.tmp` is matched against
+                the absolute path too, so it skips nothing, in either mode.
+
+    Checked by the settings dialog before it saves and by the window before
+    it searches, since the file can be edited by hand.
+    """
+    problems = [
+        f"Include pattern \"{p}\" contains '/'. Include patterns match a "
+        "file's name at any depth, so use just the name part, e.g. \"*.md\"."
+        for p in included
+        if "/" in p
+    ]
+    problems += [
+        f"Skip pattern \"{p}\" contains '/' but does not start with \"*/\". "
+        "It would skip nothing; write it as \"*/" + p.lstrip("/") + "\"."
+        for p in excluded
+        if "/" in p and not p.startswith("*/")
+    ]
+    return problems
+
+
+def search_pattern_problems(names: bool = False) -> list[str]:
+    """`pattern_problems` for the lists a search is about to apply.
+
+    Only the lists in force: one switched off is not applied, so it cannot
+    spoil anything. A name search applies the exclusions alone.
+    """
+    config = load_config()
+    included = [] if names else active_patterns(config, "included")
+    return pattern_problems(included, active_patterns(config, "excluded"))
+
+
 def search_globs() -> list[str]:
     """The `-g` argv for the current config — the one call the search needs."""
     config = load_config()
@@ -496,8 +552,12 @@ def convert_excluded_to_find(pattern: str) -> list[str]:
 
         */node_modules/*   ->  -path */node_modules
         */a/b/*            ->  -path */a/b
-        docs/*.tmp         ->  -path docs/*.tmp
+        */docs/*.tmp       ->  -path */docs/*.tmp
         *.log              ->  -name *.log
+
+    A pattern with a '/' is matched against the whole absolute path find
+    prints, so it has to begin with `*/` to match anything — which is why
+    `pattern_problems` refuses one that does not.
     """
     if pattern.startswith("*/") and pattern.endswith("/*"):
         return ["-path", pattern[:-2]]

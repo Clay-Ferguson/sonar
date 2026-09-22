@@ -68,7 +68,7 @@ search:
     - "*.py"
 ```
 
-Patterns are matched against the filename, so `*.md` means "any Markdown file at any depth".
+Patterns are matched against the filename, so `*.md` means "any Markdown file at any depth". That is also why a pattern here **cannot contain `/`**: with one in it, ugrep lists nothing at all — not even what the list's other patterns match — so Sonar refuses it instead. The settings dialog will not save it, and a search will not run while the file holds one (see [below](#when-the-config-is-missing-or-broken)).
 
 ## `search.use_included`
 
@@ -94,9 +94,12 @@ Directories and files to skip. Written in `find -path` style; Sonar translates t
 |---|---|---|
 | `*/node_modules/*` | `!node_modules/` | skip any directory named `node_modules`, at any depth |
 | `*/src/generated/*` | `!**/src/generated/**` | skip that nested path |
+| `*/docs/*.tmp` | `!**/docs/*.tmp` | skip matching files inside any `docs` directory |
 | `*.log` | `!*.log` | skip files by name |
 
 The common case is the first row: `*/NAME/*` excludes a directory called `NAME` wherever it appears in the tree.
+
+A pattern containing `/` **must start with `*/`**. Patterns are compared against full paths, so `docs/*.tmp` would skip nothing at all, and Sonar refuses it the same way it refuses a `/` in `included` — write `*/docs/*.tmp`. A pattern with no `/` matches a file or folder name at any depth.
 
 Exclusions are worth keeping generous. Skipping `node_modules`, `.git` and build output is usually the difference between a search that returns in a second and one that grinds through a hundred thousand irrelevant files.
 
@@ -171,7 +174,7 @@ The editor is started in its own session with its streams discarded, so it outli
 
 ## When the config is missing or broken
 
-Every failure degrades to "no patterns", never to an error:
+Every failure but one degrades to "no patterns", never to an error:
 
 - **File missing** — recreated with the defaults above on the next run.
 - **Malformed YAML** — reported on stdout, and the search runs unfiltered. The settings dialog says so at the top of the window when you open it, since its fields start empty in that case and saving would replace the file rather than edit it.
@@ -181,7 +184,9 @@ Every failure degrades to "no patterns", never to an error:
 - **A non-integer `search.archive_depth`** (`"2"`, `true`) — the default of 1 is used. `true` counts as a mistake here even though Python calls a bool an int; out-of-range numbers are clamped instead.
 - **Non-string entries** in a list — dropped individually.
 
-A search never fails because of a typo in this file. If results look wrong, check the file for a mistake rather than assuming the search broke.
+The exception is **a pattern that cannot work**: a `/` anywhere in `included`, or a `/` in an `excluded` pattern that does not start with `*/`. Neither ugrep nor `find` reports these — one empties every search, the other skips nothing — so Sonar does instead: a search refuses to run and names the line to fix, until it is fixed or its list's `use_` switch is `false`. A file-name search checks `excluded` only, since it never applies `included`.
+
+Otherwise, a search never fails because of a typo in this file. If results look wrong, check the file for a mistake rather than assuming the search broke.
 
 ## What is *not* configurable
 

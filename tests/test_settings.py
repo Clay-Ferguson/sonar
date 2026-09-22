@@ -8,6 +8,7 @@ called directly, so none of this needs a click. `conf` has already pointed
 
 from __future__ import annotations
 
+import pytest
 from PyQt6.QtWidgets import QLabel
 
 from sonarex import config
@@ -173,3 +174,46 @@ def test_the_skip_checkbox_dims_the_field_and_keeps_the_patterns(conf, qtbot):
     assert reopened.excluded_check.isChecked() is False
     assert reopened.excluded_edit.isEnabled() is False
     assert reopened.excluded_edit.toPlainText() == "*/build/*"
+
+
+@pytest.mark.parametrize(
+    "field, text, named",
+    [
+        pytest.param("included_edit", "*.md\ndocs/*.txt", "docs/*.txt", id="include"),
+        pytest.param("excluded_edit", "*/build/*\ndocs/*.tmp", "docs/*.tmp", id="skip"),
+    ],
+)
+def test_a_pattern_that_cannot_work_is_not_saved(conf, qtbot, dialogs, field, text, named):
+    """The dialog stays open with the edits in it, and the file is untouched."""
+    conf(included=["*.py"], excluded=["*/build/*"])
+    before = open(config.CONFIG_PATH).read()
+    dialog = SettingsDialog()
+    qtbot.addWidget(dialog)
+    getattr(dialog, field).setPlainText(text)
+    dialog._save()
+
+    assert len(dialogs) == 1 and f'"{named}"' in dialogs[0][1]
+    assert open(config.CONFIG_PATH).read() == before
+    assert dialog.result() != dialog.DialogCode.Accepted
+
+
+def test_it_is_refused_even_with_the_box_unticked(conf, qtbot, dialogs):
+    """Saved either way, it would stop every search the moment the box was
+    ticked again."""
+    conf()
+    dialog = SettingsDialog()
+    qtbot.addWidget(dialog)
+    dialog.included_check.setChecked(False)
+    dialog.included_edit.setPlainText("docs/*.md")
+    dialog._save()
+    assert len(dialogs) == 1
+
+
+def test_a_skip_pattern_under_any_folder_saves(conf, qtbot, dialogs):
+    conf()
+    dialog = SettingsDialog()
+    qtbot.addWidget(dialog)
+    dialog.excluded_edit.setPlainText("*/build/*\n*/docs/*.tmp")
+    dialog._save()
+    assert dialogs == []
+    assert config.load_settings()[0].excluded == ["*/build/*", "*/docs/*.tmp"]

@@ -217,3 +217,20 @@ def test_extract_floors_the_depth_at_one(tree):
     assert extract(Hit(f"{tree}/docs.zip", "doc/one.txt"), MAX_PREVIEW_BYTES, 0) == (
         MEMBERS["doc/one.txt"]
     )
+
+
+@pytest.mark.parametrize(
+    "path, expected",
+    [
+        ("/x/NOTES.TXT.GZ", True),
+        ("/x/bundle.tgz", True),
+        ("/x/bundle.tar.xz", True),
+        ("/x/data.zst", True),
+        # Lowercase .z is pack(1), which ugrep does not read — unlike .Z.
+        ("/x/old.z", False),
+        ("/x/archive.jar", False),
+    ],
+)
+def test_is_compressed_more(path, expected):
+    assert is_compressed(path) is expected
+

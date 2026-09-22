@@ -12,7 +12,9 @@ from __future__ import annotations
 import pytest
 
 from helpers import highlighted, labels, select
-from sonarex.search import literal_query_term, search_error
+from sonarex.archive import Hit
+from sonarex.search import literal_query_term, match_spans, search_error
+from sonarex.window import MainWindow
 
 
 def test_and_across_lines_highlights_both_terms(conf, tree, search):
@@ -148,3 +150,120 @@ def test_literal_query_term_translations():
     assert literal_query_term("-secret cat") == "cat"
     assert literal_query_term("col(o|ou)r") is None
     assert literal_query_term("-font") is None
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        # The keyword form of NOT negates the term after it, exactly as the
+        # dash does — so that term must be skipped, not picked.
+        pytest.param("NOT dog cat", "cat", id="not-first"),
+        pytest.param("cat NOT dog", "cat", id="not-second"),
+        pytest.param("NOT dog", None, id="not-only"),
+        pytest.param('NOT "dog food" cat', "cat", id="not-phrase"),
+        pytest.param("cat OR dog", "cat", id="or"),
+        pytest.param("(cat OR dog) fish", "cat", id="grouped"),
+        pytest.param("'single quoted'", "single quoted", id="single-quotes"),
+        pytest.param('"unbalanced', None, id="unbalanced"),
+        pytest.param('""', None, id="empty-phrase"),
+        pytest.param("AND OR", None, id="only-operators"),
+    ],
+)
+def test_literal_query_term_edge_cases(query, expected):
+    assert literal_query_term(query) == expected
+
+
+# -- more query shapes -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "query, present, absent",
+    [
+        # The keyword spellings of what the other tests use the short form of.
+        pytest.param("needle NOT bracket", "doc/one.txt", "doc/a[1].txt", id="not-keyword"),
+        pytest.param("alpha AND second", "doc/one.txt", "doc/sub/one.txt", id="and-keyword"),
+        pytest.param("(alpha OR bracket) file", "doc/a[1].txt", "doc/one.txt", id="grouping"),
+        # Unquoted terms are regexes.
+        pytest.param("^second", "doc/one.txt", "doc/sub/one.txt", id="anchor"),
+        pytest.param(r"\bneedle\b deep", "doc/sub/one.txt", "doc/one.txt", id="word-boundary"),
+    ],
+)
+def test_query_shapes_select_the_right_members(conf, tree, search, query, present, absent):
+    conf(archives=True)
+    rows = labels(search(tree, query))
+    assert f"docs.zip → {present}" in rows
+    assert f"docs.zip → {absent}" not in rows
+
+
+def test_a_search_ignores_case_and_so_does_the_highlight(conf, tree, search):
+    conf(archives=False)
+    window = search(tree, "NEEDLE")
+    select(window, "loose.txt")
+    assert highlighted(window) == ["needle"]
+
+
+def test_an_anchored_regex_highlights_only_where_it_matched(conf, tree, search):
+    conf(archives=True)
+    window = search(tree, "^second")
+    select(window, "docs.zip → doc/one.txt")
+    assert highlighted(window) == ["second"]
+
+
+def test_a_blank_query_starts_nothing(conf, tree, qtbot):
+    conf(archives=False)
+    window = MainWindow(tree)
+    qtbot.addWidget(window)
+    window.query_edit.setText("   ")
+    window.start_search()
+    assert not window._runner.is_running()
+    assert labels(window) == []
+
+
+def test_the_query_is_trimmed(conf, tree, search):
+    conf(archives=False)
+    window = search(tree, "  loose  ")
+    assert labels(window) == ["loose.txt"]
+    assert window._search_query == "loose"
+
+
+# -- where the highlight lands ---------------------------------------------
+
+
+def test_a_tab_is_one_column(tmp_path):
+    """ugrep's `%k` expands a tab to the next multiple of 8 by default, which
+    puts every match after one in the wrong place — `\tneedle` came back as
+    column 9. The highlighter counts characters, so a tab has to count as one.
+    """
+    path = tmp_path / "tabs.txt"
+    path.write_bytes(b"\tneedle\n\t\tneedle\nx\tneedle\n")
+    assert match_spans("needle", Hit(str(path))) == {
+        0: [(2, 6)],
+        1: [(3, 6)],
+        2: [(3, 6)],
+    }
+
+
+@pytest.mark.parametrize("archives", [False, True], ids=["plain", "archives"])
+def test_a_tab_indented_file_highlights_the_word(conf, tmp_path, search, archives):
+    (tmp_path / "code.go").write_bytes(b"func main() {\n\tneedle := 1\n\t\treturn needle\n}\n")
+    conf(archives=archives)
+    window = search(str(tmp_path), "needle")
+    select(window, "code.go")
+    assert highlighted(window) == ["needle", "needle"]
+
+
+def test_two_matches_on_one_line_and_multibyte_text(tmp_path):
+    """Columns are characters, and a match's length is its characters too —
+    `café` is four long although it is five bytes."""
+    path = tmp_path / "m.txt"
+    path.write_bytes("café needle café\n".encode())
+    assert match_spans("café", Hit(str(path))) == {0: [(1, 4), (13, 4)]}
+
+
+def test_crlf_highlights_on_a_loose_file(conf, tmp_path, search):
+    """The same CRLF case the archive tests cover, off the -z path."""
+    (tmp_path / "dos.txt").write_bytes(b"first needle\r\nsecond needle\r\n")
+    conf(archives=False)
+    window = search(str(tmp_path), "needle")
+    select(window, "dos.txt")
+    assert highlighted(window) == ["needle", "needle"]

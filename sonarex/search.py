@@ -227,6 +227,7 @@ def literal_query_term(query: str) -> str | None:
       "hello world" foo  -> hello world   (a quoted phrase is already literal)
       cat dog            -> cat           (the first of an AND, not both)
       -secret cat        -> cat           (a negated term matches nothing here)
+      NOT secret cat     -> cat           (and so does one negated by keyword)
       col(o|ou)r         -> None          (a regex, not a word)
 
     Terms are dropped rather than approximated, and None is an ordinary
@@ -247,13 +248,20 @@ def literal_query_term(query: str) -> str | None:
         # cannot, and "no highlighting" is the honest answer.
         return None
 
+    negated = False
     for part in parts:
         # Parentheses group terms in Boolean mode, so a leading or trailing
         # one belongs to the query rather than to the term.
         token = part.strip("()")
-        if not token or token in QUERY_OPERATORS:
+        if not token:
             continue
-        if token[0] in "-!":  # negated: it is what the file must *not* contain
+        if token in QUERY_OPERATORS:
+            # NOT is the keyword spelling of a leading '-': it negates the
+            # term after it, which must be skipped just the same.
+            negated = token == "NOT"
+            continue
+        if negated or token[0] in "-!":  # what the file must *not* contain
+            negated = False
             continue
         quoted = len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'"
         term = token[1:-1] if quoted else token
@@ -294,6 +302,12 @@ def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[s
 
     `-o -u` reports every match rather than one per line.
 
+    `--tabs=1` because `%k` is not a plain character count by default: ugrep
+    expands a tab to the next multiple of 8 first, so `\tneedle` reports column
+    9 rather than 2 (verified, 7.5.0) and every match after a tab is painted
+    that many characters too far right. At 1 a tab is one column, which is what
+    it is in the document the spans are applied to.
+
     Deliberately *not* carried over from `build_argv`: -r and -l (this is one
     named file and the offsets are the whole point), --line-buffered (the
     output is read in one go), and `search_globs()`. The globs are the one that
@@ -319,7 +333,7 @@ def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[s
     still the text actually matched, `"clor"` rather than `"color"` — so
     nothing below this has to know that the match was inexact.
     """
-    argv = ["ugrep", "-i", "-%", "--files", "-o", "-u"]
+    argv = ["ugrep", "-i", "-%", "--files", "-o", "-u", "--tabs=1"]
     if depth:
         argv.extend(
             [

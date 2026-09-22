@@ -413,7 +413,7 @@ The moment you add an entry, only files matching one of these patterns are searc
 *.py
 ```
 
-Patterns match the filename, so `*.md` means "any Markdown file at any depth".
+Patterns match the filename, so `*.md` means "any Markdown file at any depth" — and so a pattern here cannot contain `/`. Sonar will not save one that does: ugrep would quietly list nothing at all.
 
 The heading above the list is a **checkbox**, ticked by default. Untick it to search every file — exactly as if the list were empty — without deleting your patterns: the text area dims and keeps them, and ticking the box again brings the whitelist back into force. This is the quick way to widen one search and then narrow back down, with no clearing and re-pasting.
 
@@ -427,11 +427,16 @@ Directories and files to leave out, one pattern per line, written in `find`-styl
 |---|---|
 | `*/node_modules/*` | skip any directory named `node_modules`, at any depth |
 | `*/src/generated/*` | skip that particular nested path |
+| `*/docs/*.tmp` | skip `.tmp` files inside any `docs` folder |
 | `*.log` | skip files by name |
+
+A pattern containing `/` has to start with `*/`. Written as `docs/*.tmp` it would skip nothing, so Sonar will not save it.
 
 Sonar ships with a generous list — `node_modules`, `.git`, `.venv`, `__pycache__`, `venv`, `.svn`, `.hg`, `build`, `dist`, `.next`, `.nuxt`. Keeping it generous is usually the difference between a search that returns in a second and one that grinds through a hundred thousand irrelevant files.
 
 Like the include list, the heading above it is a **checkbox**, ticked by default. Untick it to skip nothing — exactly as if the list were empty — while the dimmed text area keeps your patterns for when you tick it again. That is how to search inside a `node_modules` or a `build` folder for once without editing the list. Expect such a search to be slower, since those are usually the largest directories in a tree.
+
+One catch: a content search run *from inside* a skipped folder — the folder row set to a `node_modules` or a `build` folder itself — finds nothing, because the pattern matches the folder you asked for as well. Untick the checkbox for that search. A file and folder name search is not affected.
 
 The two checkboxes are independent: unticking one leaves the other list in force. Unticking both searches every file under the folder. The skip checkbox applies to [file and folder name searches](#searching-file-and-folder-names) too.
 
@@ -544,6 +549,8 @@ The "files searched" count comes from ugrep itself and is only known once the se
 | `Could not run '…'` | the Open command could not be started |
 | `Cannot open — the folder no longer exists` | the file's folder was removed while Sonar had it listed |
 | `… could not be read` (in Settings) | your config file has a YAML error |
+| `Include pattern "…" contains '/'` | a pattern that would hide every result — use just the name part, such as `*.md` |
+| `Skip pattern "…" … does not start with "*/"` | a pattern that would skip nothing — the message says how to write it |
 
 ---
 

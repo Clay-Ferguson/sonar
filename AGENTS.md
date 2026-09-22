@@ -57,10 +57,11 @@ Each of these is verified and explained at its site; listed here because they ar
 - **`--stats` goes to stdout after the last hit.** `SearchRunner._take_line()` separates it (lines starting `/` are hits; the stats block is sticky). Keep `--stats` last on the argv.
 - **`--` before the query is load-bearing**; the folder is passed absolute so every printed path is absolute.
 - **`-g` filters explicitly named files too**, so `build_match_argv()` omits the config globs.
+- **A `/` in a pattern fails silently**, so `config.pattern_problems()` refuses it (checked on Save and before every search). Any `/` in an include pattern empties the *whole* search; an exclude pattern with `/` must start with `*/`, which `convert_excluded_pattern` turns into `**/` (ugrep's `*` never crosses `/`).
 - **With `-z`, inclusion `-g` globs filter archive *members*, not which archives open** — so archive extensions never go in `included:`. A glob containing `/` never matches inside an archive; `member_glob()` uses the basename and callers filter by exact `%z`.
 - **`--zmax=0` and `--fuzzy=0` are errors, not "off".** 0 means off in this app, so builders omit the flag (or floor depth at 1 for extraction). With archives and fuzzy off the argv must be byte-for-byte the plain one.
 - **Fuzzy's first character always matches exactly**, and fuzzy widens negated terms too. Don't work around either.
-- **Highlight spans are line + character column (`%n`/`%k`/`%j`), not byte offsets** — Qt strips CRLF and text is decoded. Set spans *before* `setPlainText`; use `QSyntaxHighlighter`, not `setExtraSelections` (14× slower).
+- **Highlight spans are line + character column (`%n`/`%k`/`%j`), not byte offsets** — Qt strips CRLF and text is decoded. `%k` expands tabs to 8 columns unless `--tabs=1` is on the argv. Set spans *before* `setPlainText`; use `QSyntaxHighlighter`, not `setExtraSelections` (14× slower).
 - **Result ordering is done in Python** at completion (`_sort_by_mtime`); ugrep's sort is per-directory only.
 - **`_read_stdout` splits on `"\n"`, not `splitlines()`** (`\v`, `\f`, `\x85` are legal in filenames).
 - **`SearchRunner.stop()` disconnects before killing**, so a superseded search can't deliver late results.
