@@ -11,6 +11,7 @@ from __future__ import annotations
 from helpers import highlighted, labels, select
 from sonarex.archive import Hit
 from sonarex.search import match_spans
+from sonarex.spec import SearchSpec
 
 
 def test_off_is_exact(conf, fuzzy_tree, search):
@@ -113,7 +114,7 @@ def test_the_approximate_text_is_what_gets_highlighted(conf, fuzzy_tree, search)
 
 
 def test_the_preview_needs_the_setting_the_search_ran_with(conf, fuzzy_tree):
-    """The guard on pinning `_search_fuzzy` alongside `_search_depth`.
+    """The guard on pinning `fuzzy` in the window's `SearchSpec`.
 
     Re-running at 0 finds nothing in a file the search plainly listed, so a
     preview that read the setting fresh instead of the pinned one would mark
@@ -122,8 +123,8 @@ def test_the_preview_needs_the_setting_the_search_ran_with(conf, fuzzy_tree):
     conf(archives=False, fuzzy=1)
     hit = Hit(f"{fuzzy_tree}/near.txt", "")
 
-    assert match_spans("color", hit, 0, 1) == {0: [(5, 6)]}
-    assert match_spans("color", hit, 0, 0) == {}
+    assert match_spans(SearchSpec("color", "", fuzzy=1), hit) == {0: [(5, 6)]}
+    assert match_spans(SearchSpec("color", ""), hit) == {}
 
 
 def test_turning_fuzzy_off_after_a_search_keeps_the_highlight(conf, fuzzy_tree, search):

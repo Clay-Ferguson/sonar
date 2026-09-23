@@ -11,10 +11,11 @@ from __future__ import annotations
 import io
 import os
 import tarfile
+from dataclasses import replace
 
 import pytest
 
-from helpers import highlighted, labels, nav, searching, select, status
+from helpers import current_spec, highlighted, labels, nav, searching, select, status
 from sonarex import search as search_module
 from sonarex import viewer
 from sonarex.archive import Hit
@@ -68,7 +69,7 @@ def test_argv_is_unchanged_when_archives_are_off(conf):
     itself changed — the flag adds a block of prose after the last hit, which
     `SearchRunner` drops rather than listing."""
     conf(archives=False)
-    assert build_argv("q", "/f") == [
+    assert build_argv(current_spec()) == [
         "ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files",
         "--filter=pdf:pdftotext -q % -", "--stats", "--", "q", "/f",
     ]
@@ -76,21 +77,21 @@ def test_argv_is_unchanged_when_archives_are_off(conf):
 
 def test_argv_carries_the_flags_when_on(conf):
     conf(archives=True, depth=2)
-    assert build_argv("q", "/f")[8:12] == [
+    assert build_argv(current_spec())[8:12] == [
         "-z", "--zmax=2", "--separator=\t", "--format=%f%s%z%~",
     ]
 
 
 def test_argv_carries_fuzzy_when_set(conf):
     conf(archives=False, fuzzy=2)
-    assert "--fuzzy=2" in build_argv("q", "/f")
+    assert "--fuzzy=2" in build_argv(current_spec())
 
 
 def test_argv_has_no_fuzzy_flag_when_off(conf):
     """0 means the flag is absent, not `--fuzzy=0`: ugrep rejects that outright
     (`invalid argument -Z=0`, exit 2), exactly as it rejects `--zmax=0`."""
     conf(archives=False, fuzzy=0)
-    assert not any(arg.startswith("--fuzzy") for arg in build_argv("q", "/f"))
+    assert not any(arg.startswith("--fuzzy") for arg in build_argv(current_spec()))
 
 
 def test_a_zip_is_one_opaque_row_when_off(conf, tree, search):
@@ -367,7 +368,7 @@ def test_open_extracts_a_read_only_copy(conf, tree, search):
     window = search(tree, "needle")
     item = select(window, "docs.zip → doc/one.txt")
 
-    assert viewer.open_in_editor(item.data(HIT_ROLE), window._search_depth) is None
+    assert viewer.open_in_editor(item.data(HIT_ROLE), window._search.depth) is None
 
     copies = [
         os.path.join(root, name)
@@ -386,7 +387,7 @@ def test_closing_removes_the_copies(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     item = select(window, "docs.zip → doc/one.txt")
-    viewer.open_in_editor(item.data(HIT_ROLE), window._search_depth)
+    viewer.open_in_editor(item.data(HIT_ROLE), window._search.depth)
     assert viewer._temp_root is not None
 
     window.close()
@@ -575,7 +576,7 @@ def test_argv_with_everything_on(conf, monkeypatch):
     globs, then `--stats` directly before the `--` that ends the options."""
     conf(archives=True, depth=2, fuzzy=1, included=["*.md"], excluded=["*/build/*"])
     monkeypatch.setattr(search_module.shutil, "which", lambda _name: None)
-    assert build_argv("q", "/f") == [
+    assert build_argv(current_spec()) == [
         "ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files",
         "-z", "--zmax=2", "--separator=\t", "--format=%f%s%z%~",
         "--fuzzy=1",
@@ -587,9 +588,9 @@ def test_argv_with_everything_on(conf, monkeypatch):
 def test_argv_carries_the_pdf_filter_only_when_pdftotext_is_there(conf, monkeypatch):
     conf(archives=False)
     monkeypatch.setattr(search_module.shutil, "which", lambda _name: None)
-    assert PDF_FILTER not in build_argv("q", "/f")
+    assert PDF_FILTER not in build_argv(current_spec())
     monkeypatch.setattr(search_module.shutil, "which", lambda name: f"/usr/bin/{name}")
-    assert PDF_FILTER in build_argv("q", "/f")
+    assert PDF_FILTER in build_argv(current_spec())
 
 
 def test_match_argv_for_a_plain_file(conf):
@@ -597,7 +598,9 @@ def test_match_argv_for_a_plain_file(conf):
     named on the command line too, so they would hide the very file whose
     matches are wanted."""
     conf(archives=True, included=["*.md"], excluded=["*/build/*"])
-    assert build_match_argv("q", Hit("/f/a.md"), 0) == [
+    spec = current_spec()
+    assert spec.globs  # present on the spec, and still kept off this argv
+    assert build_match_argv(replace(spec, depth=0), Hit("/f/a.md")) == [
         "ugrep", "-i", "-%", "--files", "-o", "-u", "--tabs=1",
         MATCH_FORMAT, "--", "q", "/f/a.md",
     ]
@@ -605,7 +608,8 @@ def test_match_argv_for_a_plain_file(conf):
 
 def test_match_argv_for_a_member(conf):
     conf(archives=True, included=["*.md"], excluded=["*/build/*"])
-    assert build_match_argv("q", Hit("/f/d.zip", "doc/a[1].txt"), 2, fuzzy=1) == [
+    spec = replace(current_spec(), depth=2, fuzzy=1)
+    assert build_match_argv(spec, Hit("/f/d.zip", "doc/a[1].txt")) == [
         "ugrep", "-i", "-%", "--files", "-o", "-u", "--tabs=1",
         "-z", "--zmax=2", "--no-messages", "--separator=\t", ARCHIVE_MATCH_FORMAT,
         "-g", "a?1?.txt",
@@ -657,7 +661,7 @@ def test_a_tilde_folder_is_expanded(conf, tree, search, monkeypatch):
     monkeypatch.setenv("HOME", os.path.dirname(tree))
     window = search(os.path.join("~", os.path.basename(tree)), "loose")
     assert labels(window) == ["loose.txt"]
-    assert window._search_root == tree
+    assert window._search.root == tree
 
 
 def test_a_relative_folder_is_made_absolute(conf, tree, search, monkeypatch):

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtWidgets import QLabel
 
+from helpers import current_spec
 from sonarex import config
 from sonarex.archive import MAX_DEPTH
 from sonarex.config import MAX_FUZZY
@@ -76,7 +77,7 @@ def test_the_depth_survives_being_turned_off(conf, qtbot):
     dialog._save()
 
     assert config.load_settings()[0].archive_depth == 3
-    assert config.search_depth() == 0
+    assert current_spec().depth == 0
 
 
 def test_the_dropdown_offers_exactly_max_depth_choices(conf, qtbot):
@@ -100,7 +101,7 @@ def test_the_fuzzy_dropdown_starts_at_off(conf, qtbot):
 
     dialog._save()
     assert config.load_settings()[0].fuzzy == 0
-    assert config.search_fuzzy() == 0
+    assert current_spec().fuzzy == 0
 
 
 def test_a_broken_config_warns_before_it_can_be_overwritten(conf, qtbot):
@@ -141,7 +142,7 @@ def test_unticking_include_keeps_the_patterns_but_not_the_whitelist(conf, qtbot)
     settings = config.load_settings()[0]
     assert settings.use_included is False
     assert settings.included == ["*.md", "*.py"]
-    assert config.search_globs() == ["-g", "!build/"]
+    assert list(current_spec().globs) == ["-g", "!build/"]
 
     reopened = SettingsDialog()
     qtbot.addWidget(reopened)
@@ -167,7 +168,7 @@ def test_the_skip_checkbox_dims_the_field_and_keeps_the_patterns(conf, qtbot):
     assert settings.use_excluded is False
     assert settings.use_included is True
     assert settings.excluded == ["*/build/*"]
-    assert config.search_globs() == ["-g", "*.md"]
+    assert list(current_spec().globs) == ["-g", "*.md"]
 
     reopened = SettingsDialog()
     qtbot.addWidget(reopened)

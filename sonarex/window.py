@@ -35,7 +35,7 @@ from windowchrome import apply_checkboxes, apply_scrollbars, close_markdown_wind
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
-from .config import search_depth, search_fuzzy, search_pattern_problems
+from .config import load_settings
 from .help import show_query_syntax, show_user_guide
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
@@ -52,6 +52,7 @@ from .search import (
     search_error,
 )
 from .settings import show_settings
+from .spec import SearchSpec, search_problems
 from .style import (
     CONTROL_BAR_PADDING,
     NAV_BUTTON_BG,
@@ -170,32 +171,11 @@ class MainWindow(QMainWindow):
         # The flag is what makes `_set_busy` idempotent — see the note there.
         self._spinner_frame = 0
         self._busy = False
-        # The folder the current results actually came from, captured when the
-        # search starts. Deliberately not read back from the folder row: that
-        # stays editable while results are on screen, and a row's path must
-        # not shift meaning because someone typed in a field afterwards.
-        self._search_root = ""
-        # Pinned for the same reason and at the same moment as the root: the
-        # query row stays editable while results are on screen, and the
-        # highlighting in the preview must keep meaning the search that found
-        # these files rather than whatever has since been typed over it.
-        self._search_query = ""
-        # Archive nesting, 0 when archives are off. Pinned at the start of a
-        # search alongside the root and the query, because it decides how a
-        # result is *read* as well as how it was found: changing the setting
-        # mid-session must not turn the rows already on screen into files
-        # nothing can open, and a member found three levels down can only be
-        # re-opened at the depth that reached it.
-        self._search_depth = 0
-        # How many characters a match may differ by, 0 when off. Pinned for the
-        # same reason as the depth and with the same consequence: the preview
-        # re-runs ugrep to find out where to paint, and a run without the
-        # setting that found the file marks nothing in it.
-        self._search_fuzzy = 0
-        # Whether these results came from a name search. Pinned with the rest,
-        # because it decides how a row previews: after a name search the query
-        # describes names, so there is nothing in the file for it to highlight.
-        self._search_names = False
+        # The search the current results came from — query, folder, mode and
+        # the settings it ran with — pinned when it starts and read from here,
+        # never from the rows or the config, for as long as its results are on
+        # screen. See `spec.py` for why. Blank until the first search.
+        self._search = SearchSpec("", "")
         # The current file's matches, flattened out of the spans dict and put in
         # reading order, plus where Prev/Next is parked in that list. A flat
         # list rather than the dict because stepping is what it is for: the dict
@@ -629,8 +609,10 @@ class MainWindow(QMainWindow):
         # The config file can be edited by hand, so the dialog's own check on
         # Save is not enough. A bad pattern never makes ugrep or find fail —
         # it silently lists nothing, or skips nothing — so it is refused here,
-        # where the user can be told which line to fix.
-        problems = search_pattern_problems(names)
+        # where the user can be told which line to fix. One read of the file
+        # serves both this check and the search itself.
+        settings, _error = load_settings()
+        problems = search_problems(settings, names)
         if problems:
             self._report_problem(
                 "The search patterns in the settings need fixing first:\n\n"
@@ -648,18 +630,12 @@ class MainWindow(QMainWindow):
         self._show_pane(False)
         self.preview.clear()
         self._match_count = 0
-        # Pinned here, for the whole life of these results: the same value
-        # ugrep is given, so every path it prints is genuinely underneath it
-        # and `_display_path` can rely on the prefix matching.
-        self._search_root = folder
-        self._search_query = query
-        self._search_names = names
-        # A name search never looks inside an archive or approximates, so
-        # neither setting may shape how its rows are read back.
-        self._search_depth = 0 if names else search_depth()
-        self._search_fuzzy = 0 if names else search_fuzzy()
+        # Pinned here, for the whole life of these results. The root is the
+        # same value ugrep is given, so every path it prints is genuinely
+        # underneath it and `_display_path` can rely on the prefix matching.
+        self._search = SearchSpec.from_settings(settings, query, folder, names)
         self._set_status(f"Searching {folder}…", busy=True)
-        self._runner.start(query, folder, MODE_NAMES if names else MODE_CONTENT)
+        self._runner.start(self._search)
 
     # -- rows ---------------------------------------------------------------
 
@@ -680,10 +656,10 @@ class MainWindow(QMainWindow):
         (which would come out as a chain of `..`), or the ValueError relpath
         raises when two paths share no common base at all.
         """
-        if not self._search_root:
+        if not self._search.root:
             return path
         try:
-            relative = os.path.relpath(path, self._search_root)
+            relative = os.path.relpath(path, self._search.root)
         except ValueError:
             return path
         if relative.startswith(os.pardir):
@@ -708,7 +684,7 @@ class MainWindow(QMainWindow):
         label = self._display_path(hit.path)
         tooltip = hit.path
         if hit.member:
-            levels = member_levels(hit.member, self._search_depth)
+            levels = member_levels(hit.member, self._search.depth)
             label = ARROW.join([label, *levels])
             tooltip = "\n".join(
                 [hit.path] + [f"{'  ' * (n + 1)}{name}" for n, name in enumerate(levels)]
@@ -724,13 +700,13 @@ class MainWindow(QMainWindow):
     def _on_match(self, line: str) -> None:
         # find prints bare paths, and a name may legally contain the tab that
         # `parse_result_line` would look for a member after.
-        hit = Hit(line, "") if self._search_names else parse_result_line(line)
+        hit = Hit(line, "") if self._search.names else parse_result_line(line)
         self.results.addItem(self._make_item(hit))
         self._match_count += 1
         # Cheap enough to do per hit, and it is what turns the spinner from
         # "still running" into "still finding things".
         self._set_status(
-            f"Searching {self._search_root}… {self._match_count:,} found",
+            f"Searching {self._search.root}… {self._match_count:,} found",
             busy=True,
         )
 
@@ -754,7 +730,7 @@ class MainWindow(QMainWindow):
         problem = ""
         # find has no "no match" status: 0 is a clean walk and 1 means some
         # path could not be read, which — like ugrep's 2 — is usually nothing.
-        if self._search_names:
+        if self._search.names:
             failed, program, explain = exit_code != 0, "find", name_search_error
         else:
             failed = exit_code not in (EXIT_MATCHED, EXIT_NO_MATCH)
@@ -773,7 +749,7 @@ class MainWindow(QMainWindow):
 
         if not self._match_count:
             self._set_status(
-                f"No matches{self._searched_note()} in {self._search_root}"
+                f"No matches{self._searched_note()} in {self._search.root}"
             )
             return
 
@@ -782,11 +758,11 @@ class MainWindow(QMainWindow):
         # row above is not proof of it — that field stays editable once a
         # search has finished. A name search lists folders too, so its rows
         # are counted as items rather than files.
-        noun = "item" if self._search_names else "file"
+        noun = "item" if self._search.names else "file"
         self._set_status(
             f"{self._match_count:,} {noun}"
             f"{'' if self._match_count == 1 else 's'} found"
-            f"{self._searched_note()} in {self._search_root}"
+            f"{self._searched_note()} in {self._search.root}"
         )
 
     def _sort_by_mtime(self) -> None:
@@ -895,7 +871,7 @@ class MainWindow(QMainWindow):
         item = self.results.currentItem()
         if item is None:
             return
-        error = open_in_editor(item.data(HIT_ROLE), self._search_depth)
+        error = open_in_editor(item.data(HIT_ROLE), self._search.depth)
         if error:
             self._report_problem(error)
 
@@ -978,7 +954,7 @@ class MainWindow(QMainWindow):
         if self._pdf is not None and not is_folder and not hit.member and is_pdf(hit.path):
             # After a name search the query is about the name, so nothing in
             # the pages is marked.
-            term = None if self._search_names else literal_query_term(self._search_query)
+            term = None if self._search.names else literal_query_term(self._search.query)
             text = self._pdf.show_file(hit.path, term)
             if text is None:
                 self._show_pane(True)
@@ -991,7 +967,7 @@ class MainWindow(QMainWindow):
             self._adopt_matches({})
             return
 
-        text, is_notice = read_for_preview(hit, self._search_depth)
+        text, is_notice = read_for_preview(hit, self._search.depth)
         # A notice — binary, too large, unreadable — is this app's own words
         # rather than the file, so there is nothing in it ugrep matched and its
         # line numbers mean nothing. Asking ugrep about it would also be asking
@@ -1000,10 +976,8 @@ class MainWindow(QMainWindow):
         # there is nothing in the file to ask ugrep about either.
         spans = (
             {}
-            if is_notice or not self._search_query or self._search_names
-            else match_spans(
-                self._search_query, hit, self._search_depth, self._search_fuzzy
-            )
+            if is_notice or not self._search.query or self._search.names
+            else match_spans(self._search, hit)
         )
         # Before setPlainText, not after: replacing the text is itself what
         # makes Qt run the highlighter over the document, so spans set first

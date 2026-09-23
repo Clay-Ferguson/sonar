@@ -8,7 +8,19 @@ into an ordinary string comparison.
 
 from __future__ import annotations
 
+from sonarex import config
+from sonarex.spec import SearchSpec
 from sonarex.style import MATCH_BG, MATCH_CURRENT_BG
+
+
+def current_spec(query: str = "q", root: str = "/f", names: bool = False) -> SearchSpec:
+    """The spec a search would pin right now, from whatever `conf` wrote.
+
+    What `MainWindow.start_search` builds, minus the window: one read of the
+    config folded into a `SearchSpec`, so a test can check what the settings
+    put on an argv without running anything.
+    """
+    return SearchSpec.from_settings(config.load_settings()[0], query, root, names)
 
 
 def labels(window) -> list[str]:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from helpers import highlighted, labels, nav, select, status
+from helpers import current_spec, highlighted, labels, nav, select, status
 from sonarex.archive import Hit
 from sonarex.config import build_prune_args
 from sonarex.search import MODE_CONTENT, MODE_NAMES, build_name_argv, name_terms
@@ -61,7 +61,7 @@ def test_exclusions_become_a_prune_clause():
 
 def test_name_argv(conf):
     conf(archives=True, fuzzy=2, excluded=["*/.git/*"], included=["*.py"])
-    argv = build_name_argv("report md", "/f")
+    argv = build_name_argv(current_spec("report md", names=True))
     if argv[0] == "stdbuf":
         argv = argv[2:]
     # No archive flag, no fuzziness and no inclusion glob: none of them mean

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from helpers import current_spec
+
 from sonarex import config
 
 
@@ -59,10 +61,10 @@ def test_use_included_off_drops_only_the_whitelist(conf):
     """The switch sets the inclusions aside; the exclusions stay, and the
     patterns themselves survive in the file."""
     conf(included=["*.md"], excluded=["*/build/*"], use_included=True)
-    assert config.search_globs() == ["-g", "!build/", "-g", "*.md"]
+    assert list(current_spec().globs) == ["-g", "!build/", "-g", "*.md"]
 
     conf(included=["*.md"], excluded=["*/build/*"], use_included=False)
-    assert config.search_globs() == ["-g", "!build/"]
+    assert list(current_spec().globs) == ["-g", "!build/"]
     assert config.load_settings()[0].included == ["*.md"]
 
 
@@ -70,17 +72,17 @@ def test_use_excluded_off_drops_only_the_exclusions(conf):
     """The mirror image, and it reaches the name search's prune clause too, so
     the two modes cannot disagree about whether the list is in force."""
     conf(included=["*.md"], excluded=["*/build/*"], use_excluded=True)
-    assert config.search_prune_args() == ["(", "-path", "*/build", ")", "-prune", "-o"]
+    assert list(current_spec(names=True).prune) == ["(", "-path", "*/build", ")", "-prune", "-o"]
 
     conf(included=["*.md"], excluded=["*/build/*"], use_excluded=False)
-    assert config.search_globs() == ["-g", "*.md"]
-    assert config.search_prune_args() == []
+    assert list(current_spec().globs) == ["-g", "*.md"]
+    assert list(current_spec(names=True).prune) == []
     assert config.load_settings()[0].excluded == ["*/build/*"]
 
 
 def test_both_switches_off_is_an_unfiltered_search(conf):
     conf(included=["*.md"], excluded=["*/build/*"], use_included=False, use_excluded=False)
-    assert config.search_globs() == []
+    assert list(current_spec().globs) == []
 
 
 @pytest.mark.parametrize(
@@ -96,18 +98,18 @@ def test_use_included_defaults_on(conf, body):
     conf()
     open(config.CONFIG_PATH, "w").write(body)
     assert config.load_settings()[0].use_included is True
-    assert config.search_globs() == ["-g", "*.md"]
+    assert list(current_spec().globs) == ["-g", "*.md"]
 
 
-def test_depth_accessor_folds_the_two_keys(conf):
+def test_the_spec_folds_the_two_depth_keys(conf):
     conf(archives=True, depth=2)
-    assert config.search_depth() == 2
+    assert current_spec().depth == 2
 
 
 def test_depth_is_kept_when_archives_are_off(conf):
     """Clearing the checkbox must not discard the depth that was picked."""
     conf(archives=False, depth=3)
-    assert config.search_depth() == 0
+    assert current_spec().depth == 0
     assert config.load_settings()[0].archive_depth == 3
 
 
@@ -128,14 +130,14 @@ def test_depth_is_kept_when_archives_are_off(conf):
 def test_bad_values_degrade_to_a_default(conf, body, expected):
     conf()
     open(config.CONFIG_PATH, "w").write(body)
-    assert config.search_depth() == expected
+    assert current_spec().depth == expected
 
 
-def test_fuzzy_accessor_reads_the_one_key(conf):
+def test_the_spec_reads_the_one_fuzzy_key(conf):
     """One key, not the pair the depth folds: "off" is a position in the same
     dropdown, so there is no checkbox whose value has to be remembered."""
     conf(fuzzy=2)
-    assert config.search_fuzzy() == 2
+    assert current_spec().fuzzy == 2
 
 
 @pytest.mark.parametrize(
@@ -153,15 +155,15 @@ def test_fuzzy_accessor_reads_the_one_key(conf):
 def test_bad_fuzzy_values_degrade_to_off(conf, body, expected):
     conf()
     open(config.CONFIG_PATH, "w").write(body)
-    assert config.search_fuzzy() == expected
+    assert current_spec().fuzzy == expected
 
 
 def test_a_missing_file_is_not_an_error(conf, tmp_path):
     config.CONFIG_PATH = str(tmp_path / "does-not-exist.yaml")
     settings, error = config.load_settings()
     assert error is None  # absent is ordinary; unreadable is what gets reported
-    assert config.search_depth() == 0
-    assert config.search_fuzzy() == 0
+    assert current_spec().depth == 0
+    assert current_spec().fuzzy == 0
 
 
 def test_broken_yaml_is_reported_to_the_dialog(conf):
@@ -185,4 +187,4 @@ def test_use_excluded_defaults_on(conf, body):
     conf()
     open(config.CONFIG_PATH, "w").write(body)
     assert config.load_settings()[0].use_excluded is True
-    assert config.search_globs() == ["-g", "!build/"]
+    assert list(current_spec().globs) == ["-g", "!build/"]

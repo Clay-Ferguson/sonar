@@ -21,6 +21,7 @@ import pytest
 from helpers import highlighted, labels, select
 from sonarex import config
 from sonarex.search import MODE_CONTENT, MODE_NAMES
+from sonarex.spec import search_problems
 from sonarex.window import MainWindow
 
 MODES = pytest.mark.parametrize("mode", [MODE_CONTENT, MODE_NAMES])
@@ -258,13 +259,13 @@ def test_a_skip_problem_suggests_the_fix():
 
 def test_search_problems_only_count_the_lists_in_force(conf):
     conf(included=["docs/*.md"], excluded=["docs/*.tmp"])
-    assert len(config.search_pattern_problems()) == 2
+    assert len(search_problems(config.load_settings()[0])) == 2
     # A name search applies no include list at all.
-    assert len(config.search_pattern_problems(names=True)) == 1
+    assert len(search_problems(config.load_settings()[0], names=True)) == 1
 
     conf(included=["docs/*.md"], excluded=["docs/*.tmp"],
          use_included=False, use_excluded=False)
-    assert config.search_pattern_problems() == []
+    assert search_problems(config.load_settings()[0]) == []
 
 
 def start(qtbot, folder, mode=MODE_CONTENT):

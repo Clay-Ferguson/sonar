@@ -14,6 +14,7 @@ import pytest
 from helpers import highlighted, labels, select
 from sonarex.archive import Hit
 from sonarex.search import literal_query_term, match_spans, search_error
+from sonarex.spec import SearchSpec
 from sonarex.window import MainWindow
 
 
@@ -223,7 +224,7 @@ def test_the_query_is_trimmed(conf, tree, search):
     conf(archives=False)
     window = search(tree, "  loose  ")
     assert labels(window) == ["loose.txt"]
-    assert window._search_query == "loose"
+    assert window._search.query == "loose"
 
 
 # -- where the highlight lands ---------------------------------------------
@@ -236,7 +237,7 @@ def test_a_tab_is_one_column(tmp_path):
     """
     path = tmp_path / "tabs.txt"
     path.write_bytes(b"\tneedle\n\t\tneedle\nx\tneedle\n")
-    assert match_spans("needle", Hit(str(path))) == {
+    assert match_spans(SearchSpec("needle", ""), Hit(str(path))) == {
         0: [(2, 6)],
         1: [(3, 6)],
         2: [(3, 6)],
@@ -257,7 +258,7 @@ def test_two_matches_on_one_line_and_multibyte_text(tmp_path):
     `café` is four long although it is five bytes."""
     path = tmp_path / "m.txt"
     path.write_bytes("café needle café\n".encode())
-    assert match_spans("café", Hit(str(path))) == {0: [(1, 4), (13, 4)]}
+    assert match_spans(SearchSpec("café", ""), Hit(str(path))) == {0: [(1, 4), (13, 4)]}
 
 
 def test_a_match_that_is_not_utf8_is_located_not_raised(tmp_path):
@@ -268,7 +269,7 @@ def test_a_match_that_is_not_utf8_is_located_not_raised(tmp_path):
     up."""
     path = tmp_path / "latin.txt"
     path.write_bytes(b"caf\xe9 needle\n")
-    assert match_spans("caf. needle", Hit(str(path))) == {0: [(1, 4), (6, 6)]}
+    assert match_spans(SearchSpec("caf. needle", ""), Hit(str(path))) == {0: [(1, 4), (6, 6)]}
 
 
 def test_a_latin1_file_previews_with_its_match_marked(conf, tmp_path, search):

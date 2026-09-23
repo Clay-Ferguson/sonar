@@ -6,10 +6,11 @@ the two lists of glob patterns that scope every search (`search.included` and
 `Settings` is that file as a record; `load_settings()` and `save_settings()`
 are the whole of what the dialog needs.
 
-The rest of the app reads it through accessors, so nothing else has to know
-the shape of the file: `search_globs()`, `search_prune_args()`,
-`search_depth()`, `search_fuzzy()` and `search_pattern_problems()` for a
-search, and `open_command()` for the editor.
+The rest of the app reads it as a `Settings` too, so nothing else has to know
+the shape of the file: a search calls `load_settings()` once and folds the
+result into a `spec.SearchSpec`, and the Open button calls `open_command()`
+per click. Both read the file at the moment of use, so a saved change applies
+without a restart.
 
 Loading is deliberately forgiving: a missing file, unreadable file, malformed
 YAML, or a key holding the wrong type all fall back to the defaults, so a
@@ -115,6 +116,38 @@ class Settings(NamedTuple):
     fuzzy: int
     use_included: bool = DEFAULT_USE_INCLUDED
     use_excluded: bool = DEFAULT_USE_EXCLUDED
+
+    # -- what a search applies ---------------------------------------------
+    #
+    # The one place the `use_*` switches and the archives checkbox are read
+    # for searching, so the content search and the name search cannot
+    # disagree about what is in force.
+
+    @property
+    def active_included(self) -> list[str]:
+        """The include list as a search applies it: `[]` when switched off.
+
+        A list switched off is exactly an empty one to every caller; the
+        patterns stay in the file only so the dialog can give them back.
+        """
+        return self.included if self.use_included else []
+
+    @property
+    def active_excluded(self) -> list[str]:
+        """The skip list as a search applies it: `[]` when switched off."""
+        return self.excluded if self.use_excluded else []
+
+    @property
+    def depth(self) -> int:
+        """How many archive levels a search should open: 0 when it should not.
+
+        One number carries both settings, because everything downstream wants
+        exactly that: `-z` and `--zmax` go on together, and 0 is the whole of
+        what "archive searching is off" means to a caller. The two keys stay
+        separate in the file so that clearing the checkbox does not throw
+        away the depth the user picked.
+        """
+        return self.archive_depth if self.archives else 0
 
 
 DEFAULTS = Settings(
@@ -474,21 +507,6 @@ def build_glob_args(excluded: list[str], included: list[str]) -> list[str]:
     return args
 
 
-def active_patterns(config: dict, kind: str) -> list[str]:
-    """The `search.<kind>` list as a search should apply it: `[]` when its
-    `use_<kind>` switch is off.
-
-    The one place the switches are read for searching, so the content search
-    and the name search cannot disagree about whether a list is in force. A
-    list switched off is exactly an empty one to every caller; the patterns
-    stay in the file only so the dialog can give them back.
-    """
-    default = DEFAULT_USE_INCLUDED if kind == "included" else DEFAULT_USE_EXCLUDED
-    if not get_bool(config, "search", f"use_{kind}", default):
-        return []
-    return get_patterns(config, kind)
-
-
 def pattern_problems(included: list[str], excluded: list[str]) -> list[str]:
     """One message per pattern that cannot do what it says; `[]` if none.
 
@@ -504,8 +522,9 @@ def pattern_problems(included: list[str], excluded: list[str]) -> list[str]:
       excluded  A '/' without a leading `*/`. `docs/*.tmp` is matched against
                 the absolute path too, so it skips nothing, in either mode.
 
-    Checked by the settings dialog before it saves and by the window before
-    it searches, since the file can be edited by hand.
+    Checked by the settings dialog before it saves and, through
+    `spec.search_problems`, by the window before it searches, since the file
+    can be edited by hand.
     """
     problems = [
         f"Include pattern \"{p}\" contains '/'. Include patterns match a "
@@ -520,26 +539,6 @@ def pattern_problems(included: list[str], excluded: list[str]) -> list[str]:
         if "/" in p and not p.startswith("*/")
     ]
     return problems
-
-
-def search_pattern_problems(names: bool = False) -> list[str]:
-    """`pattern_problems` for the lists a search is about to apply.
-
-    Only the lists in force: one switched off is not applied, so it cannot
-    spoil anything. A name search applies the exclusions alone.
-    """
-    config = load_config()
-    included = [] if names else active_patterns(config, "included")
-    return pattern_problems(included, active_patterns(config, "excluded"))
-
-
-def search_globs() -> list[str]:
-    """The `-g` argv for the current config — the one call the search needs."""
-    config = load_config()
-    return build_glob_args(
-        active_patterns(config, "excluded"),
-        active_patterns(config, "included"),
-    )
 
 
 def convert_excluded_to_find(pattern: str) -> list[str]:
@@ -585,49 +584,11 @@ def build_prune_args(excluded: list[str]) -> list[str]:
     return ["(", *tests, ")", "-prune", "-o"]
 
 
-def search_prune_args() -> list[str]:
-    """The prune clause for the current config — what a name search needs."""
-    return build_prune_args(active_patterns(load_config(), "excluded"))
-
-
-def search_depth() -> int:
-    """How many archive levels a search should open: 0 when it should not.
-
-    One number carries both settings, because everything downstream wants
-    exactly that: `-z` and `--zmax` go on together, and 0 is the whole of what
-    "archive searching is off" means to a caller. The two keys stay separate in
-    the file so that clearing the checkbox does not throw away the depth the
-    user picked.
-    """
-    config = load_config()
-    if not get_bool(config, "search", "archives", DEFAULT_ARCHIVES):
-        return 0
-    return get_int(
-        config, "search", "archive_depth", DEFAULT_ARCHIVE_DEPTH, 1, MAX_DEPTH
-    )
-
-
-def search_fuzzy() -> int:
-    """How many characters a match may differ by: 0 when it should not.
-
-    One key rather than the checkbox-and-number pair `search_depth` folds,
-    because there is no checkbox to fold: "off" is the first position of the
-    same dropdown, so a second key would have nothing to remember while it was
-    clear.
-
-    0 is meaningful and is not merely a floor. `--fuzzy=0` is an error to ugrep
-    — `invalid argument -Z=0`, exit 2, exactly as `--zmax=0` is — so 0 has to
-    mean the flag is left off the argv entirely, which is what every caller
-    does with it.
-    """
-    return get_int(load_config(), "search", "fuzzy", DEFAULT_FUZZY, 0, MAX_FUZZY)
-
-
 def open_command() -> str:
     """The Open button's command line — the one call the viewer needs.
 
-    Read per click rather than cached, for the same reason the globs are read
-    per search: a change saved in the dialog has to apply to the next use
+    Read per click rather than cached, for the same reason the settings are
+    read per search: a change saved in the dialog has to apply to the next use
     without restarting the app.
     """
     return get_string(load_config(), "open", "command", DEFAULT_OPEN_COMMAND)

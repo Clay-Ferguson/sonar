@@ -23,6 +23,7 @@ from sonarex.search import (
     SearchRunner,
     name_search_error,
 )
+from sonarex.spec import SearchSpec
 from sonarex.style import STATUS_BAR_MARGINS
 from sonarex.window import (
     HIT_ROLE,
@@ -171,7 +172,7 @@ def test_the_spinner_turns_and_stops(qtbot, conf, tree):
     assert window._status_spinner.text() == SPINNER_FRAMES[0]
 
     # A hit arriving must not reset it.
-    window._search_root = tree
+    window._search = SearchSpec("needle", tree)
     window._on_match(f"{tree}/loose.txt")
     window._tick_spinner()
     assert window._status_spinner.text() == SPINNER_FRAMES[1]

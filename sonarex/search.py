@@ -21,7 +21,7 @@ import subprocess
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
 from .archive import RESULT_FORMAT, SEPARATOR, Hit, member_glob
-from .config import search_depth, search_fuzzy, search_globs, search_prune_args
+from .spec import SearchSpec
 
 # Exit statuses, confirmed against ugrep 7.5.0. The distinction that matters is
 # 1 vs 2: "nothing matched" is an ordinary outcome to report in the status
@@ -87,8 +87,8 @@ def ugrep_available() -> bool:
     return shutil.which("ugrep") is not None
 
 
-def build_argv(query: str, folder: str) -> list[str]:
-    """The full ugrep command line for `query` under `folder`.
+def build_argv(spec: SearchSpec) -> list[str]:
+    """The full ugrep command line for `spec`'s query under its root.
 
     Flags, all carried over from the search this app replaces:
 
@@ -105,7 +105,7 @@ def build_argv(query: str, folder: str) -> list[str]:
                        lines rather than requiring them on one
 
     `--` separates the flags from the query so a query beginning with '-' is
-    searched for rather than parsed as an option, and `folder` is passed
+    searched for rather than parsed as an option, and the root is passed
     absolute so every path ugrep prints is absolute too.
 
     With Search Archives on, four more flags go on: `-z` to look inside
@@ -131,17 +131,15 @@ def build_argv(query: str, folder: str) -> list[str]:
     argv = ["ugrep", "--line-buffered", "-r", "-i", "-l", "-%", "--files"]
     if shutil.which("pdftotext"):
         argv.append(PDF_FILTER)
-    depth = search_depth()
-    if depth:
+    if spec.depth:
         argv.extend(
-            ["-z", f"--zmax={depth}", f"--separator={SEPARATOR}", RESULT_FORMAT]
+            ["-z", f"--zmax={spec.depth}", f"--separator={SEPARATOR}", RESULT_FORMAT]
         )
-    fuzzy = search_fuzzy()
-    if fuzzy:
-        argv.append(f"--fuzzy={fuzzy}")
-    argv.extend(search_globs())
+    if spec.fuzzy:
+        argv.append(f"--fuzzy={spec.fuzzy}")
+    argv.extend(spec.globs)
     argv.append("--stats")
-    argv.extend(["--", query, folder])
+    argv.extend(["--", spec.query, spec.root])
     return argv
 
 
@@ -180,8 +178,8 @@ def name_terms(query: str) -> list[str]:
     ]
 
 
-def build_name_argv(query: str, folder: str) -> list[str]:
-    """The `find` command line that lists names matching `query` under `folder`.
+def build_name_argv(spec: SearchSpec) -> list[str]:
+    """The `find` command line listing names that match `spec`'s query.
 
     ugrep cannot do this: it lists only files whose *content* matched, so it
     never reports a directory, and it skips an empty file even when asked to
@@ -195,15 +193,15 @@ def build_name_argv(query: str, folder: str) -> list[str]:
     above the minimum depth. Juxtaposed tests are an AND, and bind tighter than
     the `-o`, so the prune clause and the name tests need no extra grouping.
 
-    `folder` is absolute, as it is for ugrep, so every line printed starts with
+    The root is absolute, as it is for ugrep, so every line printed starts with
     '/' and `SearchRunner._take_line` needs no change to tell a hit apart.
 
     `stdbuf -oL` because find writes to a pipe through a fully buffered stdout:
     without it a slow walk delivers its hits in 4 KiB bursts rather than as
     they are found, which is what `--line-buffered` does for ugrep.
     """
-    argv = ["find", folder, "-mindepth", "1", *search_prune_args()]
-    for term in name_terms(query):
+    argv = ["find", spec.root, "-mindepth", "1", *spec.prune]
+    for term in name_terms(spec.query):
         argv.extend(["-iname", term])
     argv.append("-print")
     if shutil.which("stdbuf"):
@@ -292,8 +290,8 @@ ARCHIVE_MATCH_FORMAT = "--format=%z%s%n %k %j%~"
 MATCH_TIMEOUT = 10
 
 
-def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[str]:
-    """The ugrep command line that reports where `query` matches inside one file.
+def build_match_argv(spec: SearchSpec, hit: Hit) -> list[str]:
+    """The ugrep command line that reports where `spec`'s query matches in `hit`.
 
     The query-shaping flags are exactly `build_argv`'s -i, -% and --files, so
     the terms reported here are the same ones that selected this file in the
@@ -311,11 +309,11 @@ def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[s
 
     Deliberately *not* carried over from `build_argv`: -r and -l (this is one
     named file and the offsets are the whole point), --line-buffered (the
-    output is read in one go), and `search_globs()`. The globs are the one that
+    output is read in one go), and `spec.globs`. The globs are the one that
     would bite: -g filters explicitly named file arguments too, so passing them
     here returns nothing for the very file the search just found.
 
-    A non-zero `depth` puts `-z` back on and grows the format a `%z`, so the
+    A non-zero `spec.depth` puts `-z` back on and grows the format a `%z`, so the
     lines can be attributed to a member. It has to be the same `--zmax` the
     search ran with: a member three levels down is not reachable at one, and
     the spans would come back empty for a file that is plainly on screen.
@@ -327,7 +325,7 @@ def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[s
     an ordinary file leaves the spans identical and merely prefixes an empty
     `%z`.
 
-    `fuzzy` is pinned the same way and for the same reason, with a quieter
+    `spec.fuzzy` is pinned the same way and for the same reason, with a quieter
     failure: at 0 an approximate hit is simply not found again, so a file the
     search plainly put on screen previews with nothing marked. ugrep reports
     the approximate span itself — `%k` is still the character column and `%j`
@@ -335,23 +333,23 @@ def build_match_argv(query: str, hit: Hit, depth: int, fuzzy: int = 0) -> list[s
     nothing below this has to know that the match was inexact.
     """
     argv = ["ugrep", "-i", "-%", "--files", "-o", "-u", "--tabs=1"]
-    if depth:
+    if spec.depth:
         argv.extend(
             [
                 "-z",
-                f"--zmax={depth}",
+                f"--zmax={spec.depth}",
                 "--no-messages",
                 f"--separator={SEPARATOR}",
                 ARCHIVE_MATCH_FORMAT,
             ]
         )
         if hit.member:
-            argv.extend(["-g", member_glob(hit.member, depth)])
+            argv.extend(["-g", member_glob(hit.member, spec.depth)])
     else:
         argv.append(MATCH_FORMAT)
-    if fuzzy:
-        argv.append(f"--fuzzy={fuzzy}")
-    argv.extend(["--", query, hit.path])
+    if spec.fuzzy:
+        argv.append(f"--fuzzy={spec.fuzzy}")
+    argv.extend(["--", spec.query, hit.path])
     return argv
 
 
@@ -367,10 +365,8 @@ def _match_length(field: str) -> int:
     return len(field) - 2
 
 
-def match_spans(
-    query: str, hit: Hit, depth: int = 0, fuzzy: int = 0
-) -> dict[int, list[tuple[int, int]]]:
-    """Where `query` matches in `hit`: 0-based line -> [(column, length)].
+def match_spans(spec: SearchSpec, hit: Hit) -> dict[int, list[tuple[int, int]]]:
+    """Where `spec`'s query matches in `hit`: 0-based line -> [(column, length)].
 
     Columns are 1-based characters, as ugrep reports them; the line numbers are
     shifted to 0-based here because their only consumer indexes text blocks.
@@ -390,7 +386,7 @@ def match_spans(
     """
     try:
         completed = subprocess.run(
-            build_match_argv(query, hit, depth, fuzzy),
+            build_match_argv(spec, hit),
             capture_output=True,
             timeout=MATCH_TIMEOUT,
         )
@@ -406,7 +402,7 @@ def match_spans(
     # the expected member exactly, rather than splitting on the separator, is
     # what keeps two members of one basename apart — and is correct even for a
     # member name containing a tab, since the name is known in advance.
-    prefix = hit.member + SEPARATOR if depth else ""
+    prefix = hit.member + SEPARATOR if spec.depth else ""
     # Split on "\n" rather than splitlines() for the same reason `_read_stdout`
     # does: a matched string can contain \v, \f or \x85, and %j escapes none of
     # them, so splitlines() would tear one match into two unparseable halves.
@@ -452,7 +448,7 @@ class SearchRunner(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._process: QProcess | None = None
-        self._mode = MODE_CONTENT  # which program the current search runs
+        self._names = False  # whether the current search runs find, not ugrep
         self._stdout_tail = b""  # an incomplete last line, held for the next read
         self._stderr = b""
         self._files_searched = 0
@@ -474,16 +470,16 @@ class SearchRunner(QObject):
     def is_running(self) -> bool:
         return self._process is not None
 
-    def start(self, query: str, folder: str, mode: str = MODE_CONTENT) -> None:
-        """Abandon any running search and start one for `query` under `folder`.
+    def start(self, spec: SearchSpec) -> None:
+        """Abandon any running search and start the one `spec` describes.
 
-        `mode` picks the program: ugrep for `MODE_CONTENT`, find for
-        `MODE_NAMES`. Both print one absolute path per line, so everything
-        after the spawn is shared.
+        `spec.names` picks the program: find for a name search, ugrep
+        otherwise. Both print one absolute path per line, so everything after
+        the spawn is shared.
         """
         self.stop()
 
-        self._mode = mode
+        self._names = spec.names
         self._stdout_tail = b""
         self._stderr = b""
 
@@ -499,10 +495,7 @@ class SearchRunner(QObject):
         self._files_searched = 0
         self._in_stats = False
 
-        if mode == MODE_NAMES:
-            argv = build_name_argv(query, folder)
-        else:
-            argv = build_argv(query, folder)
+        argv = build_name_argv(spec) if spec.names else build_argv(spec)
         process.start(argv[0], argv[1:])
 
     def stop(self) -> None:
@@ -591,7 +584,7 @@ class SearchRunner(QObject):
         if error is not QProcess.ProcessError.FailedToStart:
             return
         self._process = None
-        if self._mode == MODE_NAMES:
+        if self._names:
             message = "Could not run find. Is it installed?\n\n  sudo apt install findutils"
         else:
             message = "Could not run ugrep. Is it installed?\n\n  sudo apt install ugrep"

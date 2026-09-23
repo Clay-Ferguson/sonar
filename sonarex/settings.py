@@ -10,7 +10,7 @@ contents: the next setting is one more `_add_checked_patterns`, `_add_line` or
 `_add_check` call and the dialog grows to fit it, with no geometry to revisit.
 
 Saving writes the file and nothing else. Both readers go back to the config
-at the moment they need it — `build_argv` calls `search_globs` per search,
+at the moment they need it — `start_search` calls `load_settings` per search,
 `open_in_editor` calls `open_command` per click — so a saved change applies
 next time without a restart and without anything to notify.
 """

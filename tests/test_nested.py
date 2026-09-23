@@ -76,7 +76,7 @@ def test_open_extracts_from_the_bottom_of_the_chain(conf, nested_tree, search):
     window = search(nested_tree, "needle")
     item = select(window, DEEP_ROW)
 
-    assert viewer.open_in_editor(item.data(HIT_ROLE), window._search_depth) is None
+    assert viewer.open_in_editor(item.data(HIT_ROLE), window._search.depth) is None
     copies = [
         os.path.join(root, name)
         for root, _dirs, names in os.walk(viewer._temp_root)
