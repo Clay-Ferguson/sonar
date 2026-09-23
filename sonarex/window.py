@@ -88,14 +88,14 @@ from .viewer import (
 # row is built, which `_sort_by_mtime` does all over again from scratch.
 HIT_ROLE = Qt.ItemDataRole.UserRole
 
-# The Open button's tooltip, which changes with the selection: a hit inside an
-# archive opens a copy, and that is worth saying before the click rather than
-# after the user has edited one and found the archive unchanged.
 # What separates an archive from what was found inside it, in a row's label.
 # Spaced, because the names on either side of it are paths full of punctuation
 # already and an unspaced arrow disappears into them.
 ARROW = " → "
 
+# The Open button's tooltip, which changes with the selection: a hit inside an
+# archive opens a copy, and that is worth saying before the click rather than
+# after the user has edited one and found the archive unchanged.
 OPEN_TIP = "Open this file in the editor"
 OPEN_TIP_ARCHIVED = (
     "Open a read-only copy extracted from the archive.\n"
@@ -143,6 +143,17 @@ STATUS_READY = "Ready"
 # comes with it; this is only what the bar is left showing behind it, in place
 # of numbers that no longer mean anything.
 STATUS_FAILED = "Search failed"
+
+
+def printable(text: str) -> str:
+    """`text` with any undecodable filename bytes shown as U+FFFD.
+
+    Paths arrive `os.fsdecode`d, so a name that is not UTF-8 carries lone
+    surrogates standing for its raw bytes — lossless, which is what lets the
+    `Hit` still open the file, but not something to put in front of a reader.
+    Only labels go through this; the `Hit` keeps the real path.
+    """
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
 
 
 class MainWindow(QMainWindow):
@@ -578,7 +589,7 @@ class MainWindow(QMainWindow):
         most — a rejected regex and a missing editor — are long enough that a
         truncated title would hide the part that says what to fix.
         """
-        QMessageBox.warning(self, f"{APP_NAME}", message)
+        QMessageBox.warning(self, APP_NAME, message)
 
     # -- actions -----------------------------------------------------------
 
@@ -702,10 +713,10 @@ class MainWindow(QMainWindow):
             tooltip = "\n".join(
                 [hit.path] + [f"{'  ' * (n + 1)}{name}" for n, name in enumerate(levels)]
             )
-        item = QListWidgetItem(label)
+        item = QListWidgetItem(printable(label))
         item.setData(HIT_ROLE, hit)
         # The full path stays reachable, since the row no longer shows it.
-        item.setToolTip(tooltip)
+        item.setToolTip(printable(tooltip))
         return item
 
     # -- search callbacks --------------------------------------------------
@@ -724,7 +735,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_search_finished(self, exit_code: int, stderr: str) -> None:
-        """Report a real failure; otherwise settle the list and the title.
+        """Report a real failure; otherwise sort the list and report the count.
 
         The exit status alone cannot decide this. ugrep uses 2 both for a
         search that failed and for one that merely skipped a file it could not

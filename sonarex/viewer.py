@@ -187,10 +187,7 @@ def read_for_preview(hit: Hit, depth: int = 0) -> tuple[str, bool]:
         with open(path, "rb") as handle:
             head = handle.read(SNIFF_BYTES)
             if b"\x00" in head:
-                return (
-                    f"Binary file — cannot preview.",
-                    True,
-                )
+                return ("Binary file — cannot preview.", True)
             if size > MAX_PREVIEW_BYTES:
                 return (_too_large(_human_size(size), path), True)
             # Small enough and not binary: re-read from the top rather than

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import traceback
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -40,6 +41,38 @@ def resolve_folder(argument: str | None) -> tuple[str, str | None]:
     )
 
 
+# How much of a traceback the internal-error dialog shows.
+TRACEBACK_LINES = 12
+
+
+def _report_unhandled(kind, value, trace) -> None:
+    """Show an exception that escaped a slot, instead of dying of it.
+
+    PyQt6 aborts the whole process when a Python exception leaves a slot and
+    no `sys.excepthook` has been installed — a bug in one preview would take
+    every result on screen down with it, with nothing but a core dump to show
+    for it when Sonar was started from a desktop icon. With a hook installed
+    PyQt calls it instead and carries on, so the bug is reported and the
+    window survives.
+    """
+    text = "".join(traceback.format_exception(kind, value, trace))
+    if sys.__stderr__ is not None:
+        sys.__stderr__.write(text)
+    if QApplication.instance() is None:
+        return
+    # The tail of the traceback, where the failing line is: a desktop launch
+    # has no terminal for the stderr copy above to reach. The static call
+    # rather than a hand-built box also keeps it catchable by the test
+    # suite's `dialogs` fixture, since an exec()'d box blocks offscreen.
+    tail = "\n".join(text.rstrip().splitlines()[-TRACEBACK_LINES:])
+    QMessageBox.critical(
+        None,
+        f"{APP_NAME} — internal error",
+        f"Something went wrong inside {APP_NAME}. The window should still "
+        f"work.\n\n{tail}",
+    )
+
+
 def main() -> int:
     # nargs="?" rather than a required argument: argparse reports a missing
     # one on stderr and exits before a QApplication exists, which is invisible
@@ -56,6 +89,7 @@ def main() -> int:
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
+    sys.excepthook = _report_unhandled
     app.setApplicationName(APP_NAME)
     # applicationDisplayName is deliberately NOT set. Every platform backend
     # runs its window titles through QPlatformWindow::formatWindowTitle(),

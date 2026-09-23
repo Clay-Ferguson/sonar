@@ -24,7 +24,13 @@ from sonarex.search import (
     name_search_error,
 )
 from sonarex.style import STATUS_BAR_MARGINS
-from sonarex.window import SPINNER_FRAMES, STATUS_FAILED, STATUS_READY, MainWindow
+from sonarex.window import (
+    HIT_ROLE,
+    SPINNER_FRAMES,
+    STATUS_FAILED,
+    STATUS_READY,
+    MainWindow,
+)
 
 
 # -- telling the stats block from a result ---------------------------------
@@ -211,18 +217,54 @@ def test_odd_characters_in_a_name_search(conf, tmp_path, search):
     assert sorted(labels(search(str(tmp_path), "needle", MODE_NAMES))) == sorted(names)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="stdout is decoded with 'replace', so a name that is not UTF-8 "
-    "becomes a path that does not exist, and the end-of-search sort drops it",
-)
 def test_a_name_that_is_not_utf8_is_still_a_row(conf, tmp_path, search):
+    """The path is decoded losslessly (surrogateescape), so it still names the
+    file on disk: the row survives the end-of-search sort, which drops any
+    path that no longer exists, and it previews. Only the label shows the
+    undecodable byte as U+FFFD."""
     (tmp_path / "plain.txt").write_bytes(b"needle\n")
     with open(os.path.join(os.fsencode(tmp_path), b"lat\xe9.txt"), "wb") as handle:
         handle.write(b"latin needle\n")
     conf(archives=False)
     window = search(str(tmp_path), "needle")
-    assert len(labels(window)) == 2
+    assert sorted(labels(window)) == ["lat\ufffd.txt", "plain.txt"]
+    item = select(window, "lat\ufffd.txt")
+    assert os.fsencode(item.data(HIT_ROLE).path).endswith(b"lat\xe9.txt")
+    assert window.preview.toPlainText() == "latin needle\n"
+
+
+def test_a_name_that_is_not_utf8_is_found_by_name(conf, tmp_path, search):
+    with open(os.path.join(os.fsencode(tmp_path), b"needle-\xe9.txt"), "wb"):
+        pass
+    conf(archives=False)
+    window = search(str(tmp_path), "needle", MODE_NAMES)
+    assert labels(window) == ["needle-\ufffd.txt"]
+    assert os.path.exists(window.results.item(0).data(HIT_ROLE).path)
+
+
+class _Chunks:
+    """Stands in for the QProcess, handing `_read_stdout` one chunk per read."""
+
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+
+    def readAllStandardOutput(self):
+        return self._chunks.pop(0)
+
+
+def test_a_character_split_across_two_reads_is_rejoined(qtbot):
+    """A pipe read can end in the middle of a multi-byte character. Decoding
+    each chunk on its own turned both halves into U+FFFD; the tail is held as
+    bytes, so the whole line decodes once."""
+    line = "/tmp/café.txt\n".encode()
+    cut = line.index(b"\xa9")  # between the two bytes of é
+    runner = SearchRunner()
+    seen = []
+    runner.matchFound.connect(seen.append)
+    runner._process = _Chunks([line[:cut], line[cut:]])
+    runner._read_stdout()
+    runner._read_stdout()
+    assert seen == ["/tmp/café.txt"]
 
 
 def test_a_large_result_set_arrives_whole(conf, tmp_path, search):

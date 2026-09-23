@@ -12,6 +12,7 @@ straightforward here.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -378,12 +379,19 @@ def match_spans(
     file that changed since the search, or exit 1 (nothing matched) all come
     back as {}: the preview is worth showing unhighlighted, and a dialog over
     a merely undecorated pane would be worse than the missing color.
+
+    The output is read as bytes and decoded here, not with `text=True`: that
+    decodes strictly, and `%j` passes a non-UTF-8 byte through raw — a
+    Latin-1 `café` raised UnicodeDecodeError out of the selection handler,
+    which PyQt answers by aborting the process. `surrogateescape` rather than
+    "replace" so the member prefix below compares equal to `hit.member`, which
+    `SearchRunner` decoded the same way; either counts one character per bad
+    byte, which is what the preview's own "replace" decode puts in the pane.
     """
     try:
         completed = subprocess.run(
             build_match_argv(query, hit, depth, fuzzy),
             capture_output=True,
-            text=True,
             timeout=MATCH_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError):
@@ -391,6 +399,7 @@ def match_spans(
 
     if completed.returncode != EXIT_MATCHED:
         return {}
+    stdout = os.fsdecode(completed.stdout)
 
     spans: dict[int, list[tuple[int, int]]] = {}
     # Under -z every line is prefixed with the member it came from. Matching
@@ -401,7 +410,7 @@ def match_spans(
     # Split on "\n" rather than splitlines() for the same reason `_read_stdout`
     # does: a matched string can contain \v, \f or \x85, and %j escapes none of
     # them, so splitlines() would tear one match into two unparseable halves.
-    for line in completed.stdout.split("\n"):
+    for line in stdout.split("\n"):
         if not line or not line.startswith(prefix):
             continue
         line = line[len(prefix) :]
@@ -444,8 +453,8 @@ class SearchRunner(QObject):
         super().__init__(parent)
         self._process: QProcess | None = None
         self._mode = MODE_CONTENT  # which program the current search runs
-        self._stdout_tail = ""  # an incomplete last line, held for the next read
-        self._stderr = ""
+        self._stdout_tail = b""  # an incomplete last line, held for the next read
+        self._stderr = b""
         self._files_searched = 0
         # Everything ugrep prints after its "Searched n files" line is the rest
         # of the --stats block: the selections and constraints it applied, in
@@ -475,8 +484,8 @@ class SearchRunner(QObject):
         self.stop()
 
         self._mode = mode
-        self._stdout_tail = ""
-        self._stderr = ""
+        self._stdout_tail = b""
+        self._stderr = b""
 
         process = QProcess(self)
         # Separate channels: stderr is an error report to show the user, and
@@ -524,16 +533,21 @@ class SearchRunner(QObject):
     def _read_stdout(self) -> None:
         if self._process is None:
             return
-        chunk = bytes(self._process.readAllStandardOutput()).decode("utf-8", "replace")
+        chunk = bytes(self._process.readAllStandardOutput())
         # A read can land mid-line, so only whole lines are emitted and the
         # remainder waits for the next chunk. splitlines() is deliberately not
         # used here: it would also split on characters that are legal in a
         # filename (\v, \f, \x85 and friends), inventing paths that don't exist.
-        text = self._stdout_tail + chunk
-        lines = text.split("\n")
+        #
+        # Split as bytes and decoded a whole line at a time: a read can also
+        # land mid-*character*, and decoding each chunk would turn both halves
+        # into U+FFFD. `fsdecode` (surrogateescape) rather than "replace",
+        # because a name that is not UTF-8 is still a real file — the lossless
+        # decode is what `open()` and every argv encode back to its bytes.
+        lines = (self._stdout_tail + chunk).split(b"\n")
         self._stdout_tail = lines.pop()
         for line in lines:
-            self._take_line(line)
+            self._take_line(os.fsdecode(line))
 
     def _take_line(self, line: str) -> None:
         """One whole line of ugrep's stdout: a hit, the file count, or debris.
@@ -562,7 +576,9 @@ class SearchRunner(QObject):
     def _read_stderr(self) -> None:
         if self._process is None:
             return
-        self._stderr += bytes(self._process.readAllStandardError()).decode("utf-8", "replace")
+        # Kept as bytes and decoded once at the end, so a message split across
+        # two reads is not torn mid-character.
+        self._stderr += bytes(self._process.readAllStandardError())
 
     def _on_error(self, error: QProcess.ProcessError) -> None:
         """A failure to run ugrep at all, as opposed to a failure inside it.
@@ -585,10 +601,11 @@ class SearchRunner(QObject):
         # ugrep does not newline-terminate under every combination of flags, so
         # a final partial line is a real result rather than debris.
         if self._stdout_tail:
-            self._take_line(self._stdout_tail)
-            self._stdout_tail = ""
+            self._take_line(os.fsdecode(self._stdout_tail))
+            self._stdout_tail = b""
         self._process = None
+        stderr = self._stderr.decode("utf-8", "replace")
         if status is QProcess.ExitStatus.CrashExit:
-            self.finished.emit(-1, self._stderr or "ugrep exited abnormally.")
+            self.finished.emit(-1, stderr or "ugrep exited abnormally.")
             return
-        self.finished.emit(exit_code, self._stderr)
+        self.finished.emit(exit_code, stderr)

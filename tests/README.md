@@ -8,7 +8,7 @@ Run with `./tests/run.sh` (see `AGENTS.md`). These are integration tests: they r
 
 `conftest.py` builds every fixture archive from the standard library into pytest's `tmp_path`, so nothing is checked in. `helpers.py` reads the window back — `labels()`, `highlighted()`, `select()`, `nav()`, `status()`, `searching()`. The `spawned` fixture and `NOOP_OPENER` record what Open or the folder button hands to the system opener. `search(folder, query, mode)` sets the mode dropdown.
 
-Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`.
+Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`.
 
 ## Fixtures worth knowing
 

@@ -164,15 +164,19 @@ INSTALLED_SIZE="$(du -sk --exclude=DEBIAN "$STAGE" | cut -f1)"
 
 # ugrep is a hard dependency, not a recommendation: Sonar shows a dialog and
 # exits without it, so a package that installed without it would be inert.
-# poppler-utils (pdftotext) only adds searching *inside* PDFs and xdg-utils only
-# backs the default Open command, so both are recommendations.
+# python3-pyqt6.qtpdf is hard too, for a quieter reason: Debian ships the QtPdf
+# bindings apart from python3-pyqt6, and without them pdfview's guarded import
+# fails silently and every PDF previews as "binary file". poppler-utils
+# (pdftotext) only adds searching *inside* PDFs, and xdg-utils backs the PDF
+# and folder handoffs (xdg-open) rather than anything Sonar needs to run, so
+# both are recommendations.
 cat > "$STAGE/DEBIAN/control" <<EOF
 Package: $PACKAGE
 Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: python3 (>= 3.11), python3-pyqt6, python3-yaml, ugrep
+Depends: python3 (>= 3.11), python3-pyqt6, python3-pyqt6.qtpdf, python3-yaml, ugrep
 Recommends: poppler-utils, xdg-utils, qt6-wayland
 Maintainer: $SONAREX_MAINTAINER
 Installed-Size: $INSTALLED_SIZE

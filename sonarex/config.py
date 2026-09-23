@@ -6,9 +6,10 @@ the two lists of glob patterns that scope every search (`search.included` and
 `Settings` is that file as a record; `load_settings()` and `save_settings()`
 are the whole of what the dialog needs.
 
-Two accessors exist for the rest of the app, so nothing else has to know the
-shape of the file: `search_globs()` for the ugrep argv, and `open_command()`
-for the editor.
+The rest of the app reads it through accessors, so nothing else has to know
+the shape of the file: `search_globs()`, `search_prune_args()`,
+`search_depth()`, `search_fuzzy()` and `search_pattern_problems()` for a
+search, and `open_command()` for the editor.
 
 Loading is deliberately forgiving: a missing file, unreadable file, malformed
 YAML, or a key holding the wrong type all fall back to the defaults, so a

@@ -93,7 +93,7 @@ sudo apt install ./dist/sonarex_0.1.0_all.deb
 
 The desktop entry names no folder, because one entry serves every user on the machine: launched from the application grid, Sonar opens on the current working directory and the folder row is editable anyway. Running `sonarex /path/to/folder` from a terminal still prefills it.
 
-PyQt6 and PyYAML aren't bundled. The package depends on the distribution's own `python3-pyqt6` and `python3-yaml`, which `apt` installs along with it, and `uv` isn't needed at all. `ugrep` is a hard dependency — Sonar can't search without it. `poppler-utils` (for searching inside PDFs) and `xdg-utils` (for the default **Open** command) are recommended, not required.
+PyQt6 and PyYAML aren't bundled. The package depends on the distribution's own `python3-pyqt6`, `python3-pyqt6.qtpdf` (the PDF preview) and `python3-yaml`, which `apt` installs along with it, and `uv` isn't needed at all. `ugrep` is a hard dependency — Sonar can't search without it. `poppler-utils` (for searching inside PDFs) and `xdg-utils` (which opens PDFs and folders in the desktop's own applications) are recommended, not required.
 
 Building needs only `dpkg-deb`, which every Debian system has, and the `windowchrome` sibling checkout described above, whose source is copied into the package. The version comes from `pyproject.toml`. The package's Maintainer field comes from your `git config user.name` and `user.email`; override it with `SONAREX_MAINTAINER="Name <email>"`.
 

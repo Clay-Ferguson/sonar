@@ -260,6 +260,25 @@ def test_two_matches_on_one_line_and_multibyte_text(tmp_path):
     assert match_spans("café", Hit(str(path))) == {0: [(1, 4), (13, 4)]}
 
 
+def test_a_match_that_is_not_utf8_is_located_not_raised(tmp_path):
+    """`%j` passes a Latin-1 byte through raw. Decoding that strictly raised
+    UnicodeDecodeError out of the selection handler, and PyQt aborted the
+    whole app over it. The bad byte counts as one character, as it does in
+    the preview's own "replace" decode, so the column after it still lines
+    up."""
+    path = tmp_path / "latin.txt"
+    path.write_bytes(b"caf\xe9 needle\n")
+    assert match_spans("caf. needle", Hit(str(path))) == {0: [(1, 4), (6, 6)]}
+
+
+def test_a_latin1_file_previews_with_its_match_marked(conf, tmp_path, search):
+    (tmp_path / "latin.txt").write_bytes(b"caf\xe9 needle\n")
+    conf(archives=False)
+    window = search(str(tmp_path), "caf.")
+    select(window, "latin.txt")
+    assert highlighted(window) == ["caf\ufffd"]
+
+
 def test_crlf_highlights_on_a_loose_file(conf, tmp_path, search):
     """The same CRLF case the archive tests cover, off the -z path."""
     (tmp_path / "dos.txt").write_bytes(b"first needle\r\nsecond needle\r\n")
