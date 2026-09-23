@@ -8,7 +8,7 @@ Run with `./tests/run.sh` (see `AGENTS.md`). These are integration tests: they r
 
 `conftest.py` builds every fixture archive from the standard library into pytest's `tmp_path`, so nothing is checked in. `helpers.py` reads the window back — `labels()`, `highlighted()`, `select()`, `nav()`, `status()`, `searching()`. The `spawned` fixture and `NOOP_OPENER` record what Open or the folder button hands to the system opener. `search(folder, query, mode)` sets the mode dropdown.
 
-Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`, `test_spec` (no Qt, bar one window test).
+Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`, `test_spec` (no Qt, bar one window test), `test_preview` (`PreviewPanel` and `SearchStatusBar` on their own).
 
 ## Fixtures worth knowing
 
@@ -33,7 +33,7 @@ Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `
 
 **Prev/Next.** The *current* match is painted `MATCH_CURRENT_BG`, not `MATCH_BG` — collect both for "what did ugrep find", only the former for "which one is current". Cover: two hits on one line (two stops), wrapping off either end, switching files restarts the count, a notice or fresh search leaves the buttons dim and the counter blank.
 
-**PDF pane.** Assert on objects: `_pdf_showing`, `_panes.currentWidget()`, `match_label.text()`, and `pdf.verticalScrollBar().value()` moving (the check that catches the non-scrolling `setCurrentSearchResultIndex()`). Spin a `QEventLoop` for about a second after selecting a PDF, since the count climbs lazily. `/usr/share/texmf/doc/fonts/lm/lm-info.pdf` is a 26-page file with ~50 hits for `font`; truncate it for a corrupt one. Cover: a query with no literal term (`col(o|ou)r`, `-font`) renders with nav dim; a corrupt or vanished PDF falls back to the text pane with a message; PDF → text → PDF re-adopts each pane's matches and Word Wrap follows; wrapping; Open on a PDF spawns `xdg-open`.
+**PDF pane.** Assert on objects: `panel.pdf_showing`, `panel.panes.currentWidget()`, `panel.match_label.text()`, and `panel.pdf.verticalScrollBar().value()` moving (the check that catches the non-scrolling `setCurrentSearchResultIndex()`). Spin a `QEventLoop` for about a second after selecting a PDF, since the count climbs lazily. `/usr/share/texmf/doc/fonts/lm/lm-info.pdf` is a 26-page file with ~50 hits for `font`; truncate it for a corrupt one. Cover: a query with no literal term (`col(o|ou)r`, `-font`) renders with nav dim; a corrupt or vanished PDF falls back to the text pane with a message; PDF → text → PDF re-adopts each pane's matches and Word Wrap follows; wrapping; Open on a PDF spawns `xdg-open`.
 
 **Archives.** Cover: the argv with the setting off is byte-for-byte the old one; two same-basename members preview differently; a member named `a[1].txt`; a plain `.gz` previews as text; encrypted and truncated zips produce no rows, no dialog, and don't stop the rest of the tree; `_sort_by_mtime` keeps an archive's members contiguous (stable sort keyed on time alone); a PDF inside a zip is a real hit that shows the notice, stays on the text pane, and is refused by Open; Open on a text member leaves one read-only copy with the right basename, removed by `closeEvent`; Open's tooltip follows the selection.
 

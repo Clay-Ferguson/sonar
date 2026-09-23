@@ -23,15 +23,18 @@ Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` un
 ## Layout
 
 - `__main__.py` — entry point: argparse, `QApplication`, ugrep check, folder resolution.
-- `config.py` — YAML config (`Settings`, `load_settings`/`save_settings`), read **at the moment of use** (once per search, and `open_command()` per Open click), so saved changes need no restart. `Settings.active_included`/`active_excluded`/`depth` are the one place the `use_*` switches and the archives checkbox are read for searching.
+- `config.py` — YAML config (`Settings`, a frozen dataclass; `load_settings`/`save_settings`), read **at the moment of use** (once per search, and `open_command()` per Open click), so saved changes need no restart. Every key is one row of `KEYS` (field, section, name, kind, comment), which drives loading, rendering and the known-key set. `Settings.active_included`/`active_excluded`/`depth` are the one place the `use_*` switches and the archives checkbox are read for searching.
+- `patterns.py` — what the config's glob patterns mean to ugrep (`build_glob_args`) and find (`build_prune_args`), `pattern_problems()`, and the dialog's one-pattern-per-line text form. Pure; imports nothing from the package.
 - `spec.py` — `SearchSpec`, the frozen record of one search (query, root, mode, depth, fuzzy, translated globs/prune clause), built by `SearchSpec.from_settings()` from a single `load_settings()`; `search_problems()` checks the lists a search will apply. Pure: no disk, no Qt.
 - `archive.py` — `Hit(path, member)` (member empty for ordinary files), result-line parsing, member globs, extraction via ugrep. Imports nothing from the package.
 - `search.py` — `SearchRunner` (`QProcess` streaming hits), argv builders for content search (`build_argv`), per-file match spans (`build_match_argv`/`match_spans`, synchronous), and name search (`build_name_argv`, `name_terms`). Every builder, the runner and `match_spans` take a `SearchSpec` and read nothing else. `literal_query_term()` reduces a query to one string for PDF search.
-- `window.py` — `MainWindow`: menus, rows, splitter, status bar, preview stack (text pane / `PdfPane`), Prev/Next walk, end-of-search mtime sort.
+- `window.py` — `MainWindow`: menus, the query and folder rows, the results list, running a search and reading its results back, the end-of-search mtime sort, and what Open / the folder button do with the selected row.
+- `preview.py` — `PreviewPanel`, the right-hand pane: text pane + `MatchHighlighter`, `PdfPane`, the control bar (Open, folder, Prev/Next, counter, Word Wrap) and the walk through the current file's matches. The window only calls `show_hit(hit, search)`, `clear()` and `shutdown()`.
+- `statusbar.py` — `SearchStatusBar`: message, text spinner and the green searching state (`set_status(message, busy)`).
 - `viewer.py` — `read_for_preview()` (always returns a string, never raises), `open_in_editor()`, `open_folder()`, temp copies of archive members.
 - `highlight.py` — `MatchHighlighter`, paints the spans it is given; knows nothing about the query.
 - `pdfview.py` — `PdfPane` (`QPdfView`); `PDF_AVAILABLE` false falls back to the binary notice.
-- `settings.py` — Options ▸ Settings dialog. Adding a setting = one `_add_*()` call + a field on `Settings` + its key in `render_config`'s known sets (or it is written twice).
+- `settings.py` — Options ▸ Settings dialog. Adding a setting = one `_add_*()` call + a field on `Settings` + a row in `config.KEYS` (an import-time assert catches a field with no row).
 - `help.py` — opens `docs/HELP.md` and `docs/USER_GUIDE.md` via `windowchrome.show_markdown()`. Help text is markdown, not Python.
 - `style.py` — shared look. Imports nothing from the package except `UI_POINT_SIZE` (it exists so dialogs needn't import `window`).
 
@@ -46,8 +49,8 @@ Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` un
 - **No shells.** ugrep, find, `--filter` and the user's Open command all run as argv lists (`shlex` for the Open command). Never `shell=True` — the command comes from a text field.
 - **Config loading must never raise.** Bad or missing config degrades to "no patterns". Saving rewrites the whole file (comments included) via temp file + `os.replace`.
 - **Anything a preview or Open needs is pinned at search start** in the window's one `self._search: SearchSpec`, not re-read from config or the rows. `start_search` reads the config exactly once (`test_one_search_reads_the_config_once`). A member found at depth 3 is unreachable at depth 1; the wrong fuzziness silently highlights nothing. Tests at the wrong depth/fuzziness exist to stop this being "simplified".
-- **Reset nav state wherever the preview is cleared** (selection → None, `start_search`), via `_adopt_matches({})`.
-- **`closeEvent` must clear `PdfPane`** (else SIGSEGV on exit), call `cleanup_temp_files()` and `close_markdown_windows()`.
+- **Empty the preview only through `PreviewPanel.clear()`** (selection → None, `start_search`, a selected row dropped by the sort) — it is what resets Prev/Next along with the text.
+- **`closeEvent` must call `panel.shutdown()`** (it clears `PdfPane`; else SIGSEGV on exit), `cleanup_temp_files()` and `close_markdown_windows()`.
 - Do not commit to git, or offer to. Only the human developer commits.
 
 ## ugrep / find behavior that shapes the code
@@ -58,7 +61,7 @@ Each of these is verified and explained at its site; listed here because they ar
 - **`--stats` goes to stdout after the last hit.** `SearchRunner._take_line()` separates it (lines starting `/` are hits; the stats block is sticky). Keep `--stats` last on the argv.
 - **`--` before the query is load-bearing**; the folder is passed absolute so every printed path is absolute.
 - **`-g` filters explicitly named files too**, so `build_match_argv()` omits the config globs.
-- **A `/` in a pattern fails silently**, so `config.pattern_problems()` refuses it (checked on Save and before every search). Any `/` in an include pattern empties the *whole* search; an exclude pattern with `/` must start with `*/`, which `convert_excluded_pattern` turns into `**/` (ugrep's `*` never crosses `/`).
+- **A `/` in a pattern fails silently**, so `patterns.pattern_problems()` refuses it (checked on Save and before every search). Any `/` in an include pattern empties the *whole* search; an exclude pattern with `/` must start with `*/`, which `convert_excluded_pattern` turns into `**/` (ugrep's `*` never crosses `/`).
 - **With `-z`, inclusion `-g` globs filter archive *members*, not which archives open** — so archive extensions never go in `included:`. A glob containing `/` never matches inside an archive; `member_glob()` uses the basename and callers filter by exact `%z`.
 - **`--zmax=0` and `--fuzzy=0` are errors, not "off".** 0 means off in this app, so builders omit the flag (or floor depth at 1 for extraction). With archives and fuzzy off the argv must be byte-for-byte the plain one.
 - **Fuzzy's first character always matches exactly**, and fuzzy widens negated terms too. Don't work around either.

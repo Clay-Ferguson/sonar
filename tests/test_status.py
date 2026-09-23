@@ -25,13 +25,8 @@ from sonarex.search import (
 )
 from sonarex.spec import SearchSpec
 from sonarex.style import STATUS_BAR_MARGINS
-from sonarex.window import (
-    HIT_ROLE,
-    SPINNER_FRAMES,
-    STATUS_FAILED,
-    STATUS_READY,
-    MainWindow,
-)
+from sonarex.statusbar import SPINNER_FRAMES, STATUS_READY
+from sonarex.window import HIT_ROLE, STATUS_FAILED, MainWindow
 
 
 # -- telling the stats block from a result ---------------------------------
@@ -119,8 +114,8 @@ def test_the_bar_has_room_around_its_text(qtbot, conf):
     bare = window.statusBar().contentsMargins()
     assert (bare.top(), bare.bottom()) == (STATUS_BAR_MARGINS[1], STATUS_BAR_MARGINS[3])
 
-    window._set_status("Searching…", busy=True)
-    window._set_status("done")
+    window._status.set_status("Searching…", busy=True)
+    window._status.set_status("done")
     after = window.statusBar().contentsMargins()
     assert (after.left(), after.top()) == (STATUS_BAR_MARGINS[0], STATUS_BAR_MARGINS[1])
 
@@ -168,18 +163,18 @@ def test_the_spinner_turns_and_stops(qtbot, conf, tree):
     conf(archives=False)
     window = MainWindow(tree)
     qtbot.addWidget(window)
-    window._set_status("Searching…", busy=True)
-    assert window._status_spinner.text() == SPINNER_FRAMES[0]
+    window._status.set_status("Searching…", busy=True)
+    assert window._status.spinner.text() == SPINNER_FRAMES[0]
 
     # A hit arriving must not reset it.
     window._search = SearchSpec("needle", tree)
     window._on_match(f"{tree}/loose.txt")
-    window._tick_spinner()
-    assert window._status_spinner.text() == SPINNER_FRAMES[1]
+    window._status._tick()
+    assert window._status.spinner.text() == SPINNER_FRAMES[1]
 
-    window._set_status("done")
-    assert window._status_spinner.text() == ""
-    assert not window._spinner_timer.isActive()
+    window._status.set_status("done")
+    assert window._status.spinner.text() == ""
+    assert not window._status._spinner_timer.isActive()
 
 
 def test_the_title_bar_is_only_the_app_name(conf, tree, search):
@@ -207,7 +202,7 @@ def test_odd_characters_in_a_filename_are_one_row(conf, tmp_path, search, archiv
     assert sorted(labels(window)) == sorted(names)
     for name in names:
         select(window, name)
-        assert window.preview.toPlainText() == "odd needle\n"
+        assert window.panel.text.toPlainText() == "odd needle\n"
 
 
 def test_odd_characters_in_a_name_search(conf, tmp_path, search):
@@ -231,7 +226,7 @@ def test_a_name_that_is_not_utf8_is_still_a_row(conf, tmp_path, search):
     assert sorted(labels(window)) == ["lat\ufffd.txt", "plain.txt"]
     item = select(window, "lat\ufffd.txt")
     assert os.fsencode(item.data(HIT_ROLE).path).endswith(b"lat\xe9.txt")
-    assert window.preview.toPlainText() == "latin needle\n"
+    assert window.panel.text.toPlainText() == "latin needle\n"
 
 
 def test_a_name_that_is_not_utf8_is_found_by_name(conf, tmp_path, search):

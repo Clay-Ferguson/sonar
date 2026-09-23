@@ -13,8 +13,7 @@ from PyQt6.QtWidgets import QLabel
 
 from helpers import current_spec
 from sonarex import config
-from sonarex.archive import MAX_DEPTH
-from sonarex.config import MAX_FUZZY
+from sonarex.config import MAX_DEPTH, MAX_FUZZY
 from sonarex.settings import DEPTH_LABELS, FUZZY_LABELS, SettingsDialog
 
 
@@ -48,7 +47,7 @@ def test_saving_writes_every_field(conf, qtbot):
     assert error is None
     assert settings.archives is True
     assert settings.archive_depth == 3
-    assert settings.included == ["*.py", "*.md"]
+    assert settings.included == ("*.py", "*.md")
     assert settings.fuzzy == 1
     assert settings.open_command == "/usr/bin/vim"
 
@@ -141,7 +140,7 @@ def test_unticking_include_keeps_the_patterns_but_not_the_whitelist(conf, qtbot)
 
     settings = config.load_settings()[0]
     assert settings.use_included is False
-    assert settings.included == ["*.md", "*.py"]
+    assert settings.included == ("*.md", "*.py")
     assert list(current_spec().globs) == ["-g", "!build/"]
 
     reopened = SettingsDialog()
@@ -167,7 +166,7 @@ def test_the_skip_checkbox_dims_the_field_and_keeps_the_patterns(conf, qtbot):
     settings = config.load_settings()[0]
     assert settings.use_excluded is False
     assert settings.use_included is True
-    assert settings.excluded == ["*/build/*"]
+    assert settings.excluded == ("*/build/*",)
     assert list(current_spec().globs) == ["-g", "*.md"]
 
     reopened = SettingsDialog()
@@ -217,4 +216,4 @@ def test_a_skip_pattern_under_any_folder_saves(conf, qtbot, dialogs):
     dialog.excluded_edit.setPlainText("*/build/*\n*/docs/*.tmp")
     dialog._save()
     assert dialogs == []
-    assert config.load_settings()[0].excluded == ["*/build/*", "*/docs/*.tmp"]
+    assert config.load_settings()[0].excluded == ("*/build/*", "*/docs/*.tmp")

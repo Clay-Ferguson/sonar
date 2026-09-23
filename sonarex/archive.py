@@ -65,11 +65,6 @@ EXTRACT_FORMAT = "--format=%z%s%O%~"
 # it to be confused with.
 LEVEL_SEPARATOR = ":"
 
-# The ceiling offered for --zmax. ugrep itself allows 1..99, but every level
-# costs and three is already past what an ordinary tree holds; the dialog
-# offers exactly this many.
-MAX_DEPTH = 3
-
 # Seconds. Extraction is synchronous, on the GUI thread, for the same reason
 # `match_spans` is: at the preview's size cap it is a few tens of milliseconds.
 # The ceiling is here because a pathological archive should cost a missing

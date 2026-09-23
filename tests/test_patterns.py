@@ -19,7 +19,7 @@ import os
 import pytest
 
 from helpers import highlighted, labels, select
-from sonarex import config
+from sonarex import config, patterns
 from sonarex.search import MODE_CONTENT, MODE_NAMES
 from sonarex.spec import search_problems
 from sonarex.window import MainWindow
@@ -202,15 +202,15 @@ def test_highlights_survive_a_whitelist(conf, pattern_tree, search):
     ],
 )
 def test_convert_excluded_pattern(pattern, expected):
-    assert config.convert_excluded_pattern(pattern) == expected
+    assert patterns.convert_excluded_pattern(pattern) == expected
 
 
 def test_parse_pattern_lines():
     """Blank lines and surrounding space never become a pattern: an empty
     glob is one ugrep takes as matching nothing at all."""
-    assert config.parse_pattern_lines("  *.md \n\n*.py\r\n\t\n") == ["*.md", "*.py"]
-    assert config.parse_pattern_lines("") == []
-    assert config.pattern_lines(["*.md", "*.py"]) == "*.md\n*.py"
+    assert patterns.parse_pattern_lines("  *.md \n\n*.py\r\n\t\n") == ["*.md", "*.py"]
+    assert patterns.parse_pattern_lines("") == []
+    assert patterns.pattern_lines(["*.md", "*.py"]) == "*.md\n*.py"
 
 
 # -- patterns that cannot work -----------------------------------------------
@@ -246,14 +246,14 @@ def test_a_file_pattern_under_a_folder_is_skipped(conf, tmp_path, search, mode):
     ],
 )
 def test_pattern_problems(included, excluded, bad):
-    problems = config.pattern_problems(included, excluded)
+    problems = patterns.pattern_problems(included, excluded)
     assert len(problems) == len(bad)
     for pattern, message in zip(bad, problems):
         assert f'"{pattern}"' in message
 
 
 def test_a_skip_problem_suggests_the_fix():
-    [message] = config.pattern_problems([], ["docs/*.tmp"])
+    [message] = patterns.pattern_problems([], ["docs/*.tmp"])
     assert '"*/docs/*.tmp"' in message
 
 

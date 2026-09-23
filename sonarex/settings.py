@@ -17,6 +17,7 @@ next time without a restart and without anything to notify.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from html import escape
 
 from PyQt6.QtGui import QFontMetrics
@@ -35,17 +36,15 @@ from PyQt6.QtWidgets import (
 from windowchrome import apply_checkboxes, apply_scrollbars
 
 from . import APP_NAME
-from .archive import MAX_DEPTH
 from .config import (
     CONFIG_PATH,
+    MAX_DEPTH,
     MAX_FUZZY,
     Settings,
     load_settings,
-    parse_pattern_lines,
-    pattern_lines,
-    pattern_problems,
     save_settings,
 )
+from .patterns import parse_pattern_lines, pattern_lines, pattern_problems
 from .style import (
     PRIMARY_BUTTON_BG,
     SECONDARY_BUTTON_BG,
@@ -278,7 +277,7 @@ class SettingsDialog(QDialog):
         self._layout.addWidget(caption)
 
     def _add_checked_patterns(
-        self, label: str, patterns: list[str], checked: bool, tooltip: str = ""
+        self, label: str, patterns: Sequence[str], checked: bool, tooltip: str = ""
     ) -> tuple[QCheckBox, PatternEdit]:
         """A pattern field whose caption is a checkbox that switches it off.
 

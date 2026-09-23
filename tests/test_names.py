@@ -12,10 +12,11 @@ import os
 
 from helpers import current_spec, highlighted, labels, nav, select, status
 from sonarex.archive import Hit
-from sonarex.config import build_prune_args
+from sonarex.patterns import build_prune_args
 from sonarex.search import MODE_CONTENT, MODE_NAMES, build_name_argv, name_terms
 from sonarex.viewer import FOLDER_NOTICE
-from sonarex.window import HIT_ROLE, OPEN_TIP_FOLDER, STATUS_FAILED, MainWindow
+from sonarex.preview import OPEN_TIP_FOLDER
+from sonarex.window import HIT_ROLE, STATUS_FAILED, MainWindow
 
 from conftest import NOOP_OPENER, needs_permissions
 
@@ -156,12 +157,12 @@ def test_a_folder_row_previews_a_notice_and_opens_in_the_file_manager(
     window = search(name_tree, "report", MODE_NAMES)
     select(window, "ReportDir")
 
-    assert window.preview.toPlainText() == FOLDER_NOTICE
+    assert window.panel.text.toPlainText() == FOLDER_NOTICE
     assert nav(window) == (False, "")
-    assert window.open_button.isEnabled()
-    assert window.open_button.toolTip() == OPEN_TIP_FOLDER
+    assert window.panel.open_button.isEnabled()
+    assert window.panel.open_button.toolTip() == OPEN_TIP_FOLDER
 
-    window.open_button.click()
+    window.panel.open_button.click()
     assert spawned == [[NOOP_OPENER, os.path.join(name_tree, "ReportDir")]]
 
 
@@ -171,7 +172,7 @@ def test_a_file_row_previews_with_nothing_highlighted(conf, name_tree, search):
     window = search(name_tree, "report", MODE_NAMES)
     select(window, "My Report.md")
 
-    assert window.preview.toPlainText() == "a report inside\n"
+    assert window.panel.text.toPlainText() == "a report inside\n"
     assert highlighted(window) == []
     assert nav(window) == (False, "")
 

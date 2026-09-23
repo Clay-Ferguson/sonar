@@ -65,7 +65,7 @@ def test_use_included_off_drops_only_the_whitelist(conf):
 
     conf(included=["*.md"], excluded=["*/build/*"], use_included=False)
     assert list(current_spec().globs) == ["-g", "!build/"]
-    assert config.load_settings()[0].included == ["*.md"]
+    assert config.load_settings()[0].included == ("*.md",)
 
 
 def test_use_excluded_off_drops_only_the_exclusions(conf):
@@ -77,7 +77,7 @@ def test_use_excluded_off_drops_only_the_exclusions(conf):
     conf(included=["*.md"], excluded=["*/build/*"], use_excluded=False)
     assert list(current_spec().globs) == ["-g", "*.md"]
     assert list(current_spec(names=True).prune) == []
-    assert config.load_settings()[0].excluded == ["*/build/*"]
+    assert config.load_settings()[0].excluded == ("*/build/*",)
 
 
 def test_both_switches_off_is_an_unfiltered_search(conf):
@@ -188,3 +188,53 @@ def test_use_excluded_defaults_on(conf, body):
     open(config.CONFIG_PATH, "w").write(body)
     assert config.load_settings()[0].use_excluded is True
     assert list(current_spec().globs) == ["-g", "!build/"]
+
+
+# -- the key table and the record -------------------------------------------
+
+
+def test_every_setting_survives_a_save_and_load(conf):
+    """What `KEYS` writes, `KEYS` reads back: every field, none at its default,
+    so a key missing from either direction cannot hide behind a default."""
+    conf()
+    wanted = config.Settings(
+        included=("*.md", 'odd "quoted" \\ name'),
+        excluded=("*/tmp/*",),
+        archives=True,
+        archive_depth=config.MAX_DEPTH,
+        open_command="gnome-terminal -- vim %s",
+        fuzzy=config.MAX_FUZZY,
+        use_included=False,
+        use_excluded=False,
+    )
+    assert all(
+        getattr(wanted, key.field) != getattr(config.Settings(), key.field)
+        for key in config.KEYS
+    )
+    assert config.save_settings(wanted) is None
+    assert config.load_settings() == (wanted, None)
+
+
+def test_settings_cannot_be_changed_in_place():
+    """A search pins one; nothing may change it underneath the others. The
+    old NamedTuple shared `DEFAULT_EXCLUDED`'s list with `DEFAULTS`, so an
+    append to either changed both."""
+    with pytest.raises(AttributeError):
+        config.DEFAULTS.excluded.append("*.log")  # type: ignore[attr-defined]
+    with pytest.raises(AttributeError):
+        config.DEFAULTS.fuzzy = 2  # type: ignore[misc]
+
+
+def test_a_list_given_to_settings_is_stored_as_a_tuple():
+    settings = config.Settings(included=["*.md"], excluded=["*/build/*"])
+    assert settings.included == ("*.md",)
+    assert settings.excluded == ("*/build/*",)
+
+
+def test_a_missing_key_is_its_field_default(conf):
+    """`Settings()` is what an empty file means; `DEFAULTS` is the first-run
+    file, which differs only in shipping the skip list."""
+    conf()
+    open(config.CONFIG_PATH, "w").write("")
+    assert config.load_settings() == (config.Settings(), None)
+    assert config.DEFAULTS == config.Settings(excluded=config.DEFAULT_EXCLUDED)

@@ -1,16 +1,23 @@
-"""The config file, the glob translation it feeds, and the Open command.
+"""The config file: what it holds, how it is read, and how it is written.
 
 One YAML file at `CONFIG_PATH` holds everything the settings dialog edits:
 the two lists of glob patterns that scope every search (`search.included` and
-`search.excluded`) and the command the Open button runs (`open.command`).
+`search.excluded`, with a switch each), archive searching and its depth,
+near-match searching, and the command the Open button runs (`open.command`).
 `Settings` is that file as a record; `load_settings()` and `save_settings()`
-are the whole of what the dialog needs.
+are the whole of the interface.
 
-The rest of the app reads it as a `Settings` too, so nothing else has to know
-the shape of the file: a search calls `load_settings()` once and folds the
-result into a `spec.SearchSpec`, and the Open button calls `open_command()`
-per click. Both read the file at the moment of use, so a saved change applies
-without a restart.
+Every key is described once, in `KEYS`: which `Settings` field it fills,
+where it sits in the file, what kind of value it holds, and the comment
+written above it. Loading, rendering and "which keys does this version know"
+are all driven from that table, so adding a setting is a `Settings` field, a
+`KEYS` row and a widget in the dialog — nothing to keep in step by hand.
+
+The rest of the app reads the file at the moment of use: a search calls
+`load_settings()` once and folds the result into a `spec.SearchSpec`, and the
+Open button calls `open_command()` per click. A saved change therefore applies
+without a restart. What the patterns *mean* to ugrep and find is `patterns`'s
+business, not this module's.
 
 Loading is deliberately forgiving: a missing file, unreadable file, malformed
 YAML, or a key holding the wrong type all fall back to the defaults, so a
@@ -22,9 +29,8 @@ mistyped in a config file.
 from __future__ import annotations
 
 import os
-from typing import NamedTuple
-
-from .archive import MAX_DEPTH
+from collections.abc import Sequence
+from dataclasses import dataclass, fields
 
 # PyYAML is a declared dependency, so this import normally succeeds. It is
 # still guarded because the failure mode matters: running the module without
@@ -44,7 +50,7 @@ CONFIG_PATH = os.path.expanduser("~/.config/sonarex/sonarex-config.yaml")
 # `included` ships empty — an inclusion list is a whitelist, so any entry at
 # all silently hides every other file type, which is the wrong default for a
 # general-purpose search tool.
-DEFAULT_EXCLUDED = [
+DEFAULT_EXCLUDED = (
     "*/node_modules/*",
     "*/.git/*",
     "*/.venv/*",
@@ -56,7 +62,7 @@ DEFAULT_EXCLUDED = [
     "*/dist/*",
     "*/.next/*",
     "*/.nuxt/*",
-]
+)
 
 # Whether each pattern list is applied at all. On, so a list someone wrote
 # does what it says; the switches exist so a list can be set aside for one
@@ -93,29 +99,44 @@ DEFAULT_FUZZY = 0
 # `cat`. Three is where it stops being a search.
 MAX_FUZZY = 3
 
+# The ceiling offered for --zmax. ugrep itself allows 1..99, but every level
+# costs and three is already past what an ordinary tree holds; the dialog
+# offers exactly this many.
+MAX_DEPTH = 3
+
 # The command the Open button runs when nothing else is configured. Carried
 # over from the Nautilus version, which spawned exactly this.
 DEFAULT_OPEN_COMMAND = "/usr/bin/code"
 
 
-class Settings(NamedTuple):
+
+@dataclass(frozen=True)
+class Settings:
     """The config file as a record — one field per thing the dialog edits.
 
-    Adding a setting is a field here, a line in `render_config` and a widget
-    in the dialog; nothing has to grow a wider tuple or a positional argument
-    at each call site. `use_included` and `use_excluded` are last and
-    defaulted for exactly that reason: the positional constructions that
-    predate them still mean what they did.
+    Frozen, and the pattern lists are tuples (a list passed in is converted),
+    so a `Settings` can be shared — a search pins one — without anyone being
+    able to change it underneath the others.
+
+    Each field's default is what a *missing* key means, which for the two
+    pattern lists is "none". The file written on first run is `DEFAULTS`,
+    which differs in exactly one way: it ships `DEFAULT_EXCLUDED`.
     """
 
-    included: list[str]
-    excluded: list[str]
-    archives: bool
-    archive_depth: int
-    open_command: str
-    fuzzy: int
+    included: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
+    archives: bool = DEFAULT_ARCHIVES
+    archive_depth: int = DEFAULT_ARCHIVE_DEPTH
+    open_command: str = DEFAULT_OPEN_COMMAND
+    fuzzy: int = DEFAULT_FUZZY
     use_included: bool = DEFAULT_USE_INCLUDED
     use_excluded: bool = DEFAULT_USE_EXCLUDED
+
+    def __post_init__(self) -> None:
+        # object.__setattr__ because the dataclass is frozen; this is the one
+        # moment it may be written, and only to normalize the type.
+        object.__setattr__(self, "included", tuple(self.included))
+        object.__setattr__(self, "excluded", tuple(self.excluded))
 
     # -- what a search applies ---------------------------------------------
     #
@@ -124,18 +145,18 @@ class Settings(NamedTuple):
     # disagree about what is in force.
 
     @property
-    def active_included(self) -> list[str]:
-        """The include list as a search applies it: `[]` when switched off.
+    def active_included(self) -> tuple[str, ...]:
+        """The include list as a search applies it: `()` when switched off.
 
         A list switched off is exactly an empty one to every caller; the
         patterns stay in the file only so the dialog can give them back.
         """
-        return self.included if self.use_included else []
+        return self.included if self.use_included else ()
 
     @property
-    def active_excluded(self) -> list[str]:
-        """The skip list as a search applies it: `[]` when switched off."""
-        return self.excluded if self.use_excluded else []
+    def active_excluded(self) -> tuple[str, ...]:
+        """The skip list as a search applies it: `()` when switched off."""
+        return self.excluded if self.use_excluded else ()
 
     @property
     def depth(self) -> int:
@@ -150,16 +171,7 @@ class Settings(NamedTuple):
         return self.archive_depth if self.archives else 0
 
 
-DEFAULTS = Settings(
-    [],
-    DEFAULT_EXCLUDED,
-    DEFAULT_ARCHIVES,
-    DEFAULT_ARCHIVE_DEPTH,
-    DEFAULT_OPEN_COMMAND,
-    DEFAULT_FUZZY,
-    DEFAULT_USE_INCLUDED,
-    DEFAULT_USE_EXCLUDED,
-)
+DEFAULTS = Settings(excluded=DEFAULT_EXCLUDED)
 
 
 # The comment block at the top of the file, and the ones introducing each
@@ -236,6 +248,63 @@ FUZZY_COMMENT = """\
 """
 
 
+
+# -- the key table ----------------------------------------------------------
+
+# What a key holds, which decides how it is read and how it is written.
+PATTERNS = "patterns"  # a list of non-empty strings
+BOOL = "bool"  # a real YAML boolean
+INT = "int"  # an integer, clamped to [low, high]
+STRING = "string"  # a non-blank string
+
+
+@dataclass(frozen=True)
+class Key:
+    """One key of the file, and the `Settings` field it fills.
+
+    `comment` is written above it on every save. `low` and `high` bound an
+    `INT` and mean nothing for the other kinds.
+    """
+
+    field: str
+    section: str
+    name: str
+    kind: str
+    comment: str
+    low: int = 0
+    high: int = 0
+
+
+# Every key this version knows, in the order they are written. The order is
+# part of the file's readability — `use_excluded`'s comment says "below", and
+# the depth follows the checkbox it qualifies — so it is fixed here rather than
+# derived from `Settings`.
+KEYS = (
+    Key("included", "search", "included", PATTERNS, INCLUDED_COMMENT),
+    Key("use_included", "search", "use_included", BOOL, USE_INCLUDED_COMMENT),
+    Key("use_excluded", "search", "use_excluded", BOOL, USE_EXCLUDED_COMMENT),
+    Key("excluded", "search", "excluded", PATTERNS, EXCLUDED_COMMENT),
+    Key("archives", "search", "archives", BOOL, ARCHIVES_COMMENT),
+    Key(
+        "archive_depth", "search", "archive_depth", INT, ARCHIVE_DEPTH_COMMENT,
+        low=1, high=MAX_DEPTH,
+    ),
+    Key("fuzzy", "search", "fuzzy", INT, FUZZY_COMMENT, low=0, high=MAX_FUZZY),
+    Key("open_command", "open", "command", STRING, OPEN_COMMENT),
+)
+
+# The file's top-level sections, in the order they are written.
+SECTIONS = ("search", "open")
+
+# Every `Settings` field has exactly one key. Checked at import, so a field
+# added without a row fails the first test run rather than silently never
+# being saved.
+assert sorted(key.field for key in KEYS) == sorted(f.name for f in fields(Settings))
+
+
+# -- writing ----------------------------------------------------------------
+
+
 def _quote(value: str) -> str:
     """`value` as a YAML double-quoted scalar.
 
@@ -248,7 +317,7 @@ def _quote(value: str) -> str:
     return f'"{escaped}"'
 
 
-def _render_list(name: str, comment: str, patterns: list[str]) -> str:
+def _render_list(name: str, comment: str, patterns: Sequence[str]) -> str:
     """One commented `name:` key holding `patterns`, indented under `search:`.
 
     An empty list is written inline as `[]` rather than as a key with nothing
@@ -281,63 +350,40 @@ def _section(mapping: dict | None) -> dict:
     return mapping if isinstance(mapping, dict) else {}
 
 
+def _render_key(key: Key, value) -> str:
+    """One commented key, indented under its section."""
+    if key.kind == PATTERNS:
+        return _render_list(key.name, key.comment, value)
+    if key.kind == BOOL:
+        text = "true" if value else "false"
+    elif key.kind == INT:
+        text = str(value)
+    else:
+        text = _quote(value)
+    return f"{key.comment}  {key.name}: {text}\n"
+
+
 def render_config(settings: Settings, config: dict | None = None) -> str:
     """The full text of a config file holding `settings`.
 
     `config` is the file's previously parsed contents, if any: every key it
-    holds that `Settings` does not cover is written back out underneath, so
-    rewriting the file preserves settings this function was never taught
-    about.
+    holds that `KEYS` does not cover is written back out after the known ones
+    of its section, so rewriting the file preserves settings this version was
+    never taught about.
     """
     config = _section(config)
-    search = _section(config.get("search"))
-    opening = _section(config.get("open"))
-
-    extra_search = {
-        k: v
-        for k, v in search.items()
-        if k
-        not in (
-            "included",
-            "use_included",
-            "excluded",
-            "use_excluded",
-            "archives",
-            "archive_depth",
-            "fuzzy",
-        )
-    }
-    extra_open = {k: v for k, v in opening.items() if k != "command"}
-    extra_top = {k: v for k, v in config.items() if k not in ("search", "open")}
-
-    return (
-        FILE_COMMENT
-        + "\nsearch:\n"
-        + _render_list("included", INCLUDED_COMMENT, settings.included)
-        + "\n"
-        + USE_INCLUDED_COMMENT
-        + f"  use_included: {'true' if settings.use_included else 'false'}\n"
-        + "\n"
-        + USE_EXCLUDED_COMMENT
-        + f"  use_excluded: {'true' if settings.use_excluded else 'false'}\n"
-        + "\n"
-        + _render_list("excluded", EXCLUDED_COMMENT, settings.excluded)
-        + "\n"
-        + ARCHIVES_COMMENT
-        + f"  archives: {'true' if settings.archives else 'false'}\n"
-        + "\n"
-        + ARCHIVE_DEPTH_COMMENT
-        + f"  archive_depth: {settings.archive_depth}\n"
-        + "\n"
-        + FUZZY_COMMENT
-        + f"  fuzzy: {settings.fuzzy}\n"
-        + _indent_yaml(extra_search, "  ")
-        + "\nopen:\n"
-        + OPEN_COMMENT
-        + f"  command: {_quote(settings.open_command)}\n"
-        + _indent_yaml(extra_open, "  ")
-        + _indent_yaml(extra_top, "")
-    )
+    text = FILE_COMMENT
+    for section in SECTIONS:
+        keys = [key for key in KEYS if key.section == section]
+        known = {key.name for key in keys}
+        text += f"\n{section}:\n"
+        text += "\n".join(_render_key(key, getattr(settings, key.field)) for key in keys)
+        extra = {
+            k: v for k, v in _section(config.get(section)).items() if k not in known
+        }
+        text += _indent_yaml(extra, "  ")
+    extra_top = {k: v for k, v in config.items() if k not in SECTIONS}
+    return text + _indent_yaml(extra_top, "")
 
 
 DEFAULT_CONFIG = render_config(DEFAULTS)
@@ -347,7 +393,7 @@ def ensure_config() -> None:
     """Create `CONFIG_PATH` with `DEFAULT_CONFIG` if it isn't there yet.
 
     Failures are swallowed on purpose: not being able to write the config is
-    not a reason to refuse to search, and `load_config` treats the missing
+    not a reason to refuse to search, and `load_settings` treats the missing
     file as "no patterns" anyway.
     """
     if os.path.exists(CONFIG_PATH):
@@ -358,6 +404,9 @@ def ensure_config() -> None:
             handle.write(DEFAULT_CONFIG)
     except OSError as exc:
         print(f"Sonar: could not create {CONFIG_PATH}: {exc}")
+
+
+# -- reading ----------------------------------------------------------------
 
 
 def read_config() -> tuple[dict, str | None]:
@@ -391,25 +440,21 @@ def read_config() -> tuple[dict, str | None]:
     return loaded, None
 
 
-def load_config() -> dict:
-    """The parsed config, or `{}` if it can't be read for any reason."""
-    return read_config()[0]
+def get_patterns(config: dict, section: str, key: str) -> tuple[str, ...]:
+    """`<section>.<key>` from `config` as a pattern list; `()` if absent or
+    malformed.
 
-
-def get_patterns(config: dict, kind: str) -> list[str]:
-    """The `search.<kind>` list from `config`; `[]` if absent or malformed.
-
-    `kind` is "included" or "excluded". Anything that isn't a list of strings
+    Anything that isn't a list of strings
     is discarded rather than half-used — a pattern list holding a stray
     mapping would otherwise reach ugrep's argv as something unprintable.
     """
-    search = config.get("search")
-    if not isinstance(search, dict):
-        return []
-    patterns = search.get(kind)
+    values = config.get(section)
+    if not isinstance(values, dict):
+        return ()
+    patterns = values.get(key)
     if not isinstance(patterns, list):
-        return []
-    return [p for p in patterns if isinstance(p, str) and p]
+        return ()
+    return tuple(p for p in patterns if isinstance(p, str) and p)
 
 
 def get_string(config: dict, section: str, key: str, default: str) -> str:
@@ -461,155 +506,19 @@ def get_int(
     return max(low, min(high, value))
 
 
-def convert_excluded_pattern(pattern: str) -> str:
-    """A find-style exclusion pattern as a ugrep `-g` glob.
-
-    The config spells exclusions the way `find -path` does, typically
-    `*/node_modules/*`. ugrep's `-g` globs are gitignore-style instead, where a
-    trailing '/' matches directories by basename anywhere in the tree and '**'
-    is what crosses path separators.
-
-        */node_modules/*   ->  !node_modules/
-        */a/b/*            ->  !**/a/b/**
-        */docs/*.tmp       ->  !**/docs/*.tmp
-        *.log              ->  !*.log
-
-    A leading `*/` has to become `**/` whatever follows it: ugrep's `*` never
-    crosses a '/', so `!*/docs/*.tmp` matches nothing at all (verified), while
-    find's `-path */docs/*.tmp` skips those files — the two modes disagreed.
-    Any other pattern with a '/' is refused by `pattern_problems` before it
-    gets here.
-    """
-    if pattern.startswith("*/") and pattern.endswith("/*"):
-        middle = pattern[2:-2]
-        if "/" not in middle:
-            # Basename form: excludes a directory of this name at any depth.
-            return f"!{middle}/"
-        # A nested path only means anything as a full-pathname glob.
-        return f"!**/{middle}/**"
-    if pattern.startswith("*/"):
-        return f"!**/{pattern[2:]}"
-    return f"!{pattern}"
+def _read_key(config: dict, key: Key, default):
+    """`key`'s value from the parsed `config`, or `default` if it is unusable."""
+    if key.kind == PATTERNS:
+        return get_patterns(config, key.section, key.name)
+    if key.kind == BOOL:
+        return get_bool(config, key.section, key.name, default)
+    if key.kind == INT:
+        return get_int(config, key.section, key.name, default, key.low, key.high)
+    return get_string(config, key.section, key.name, default)
 
 
-def build_glob_args(excluded: list[str], included: list[str]) -> list[str]:
-    """Config patterns as a flat argv list of repeated ugrep `-g` arguments.
-
-    e.g. `['-g', '!node_modules/', '-g', '*.md']`. Returned as argv rather
-    than a shell string because nothing in Sonar builds a shell command line
-    any more — ugrep is spawned directly.
-    """
-    args: list[str] = []
-    for pattern in excluded:
-        args.extend(["-g", convert_excluded_pattern(pattern)])
-    for pattern in included:
-        args.extend(["-g", pattern])
-    return args
-
-
-def pattern_problems(included: list[str], excluded: list[str]) -> list[str]:
-    """One message per pattern that cannot do what it says; `[]` if none.
-
-    Both lists fail *silently* on a bad '/', which is why this exists rather
-    than leaving ugrep to complain — it never does (all verified, 7.5.0):
-
-      included  Any '/' at all. The folder is passed absolute, so `docs/*.md`
-                matches no path ever printed — and ugrep then lists nothing,
-                even for the other patterns beside it: one such line empties
-                every search. `**/gen/*` narrows the whole list to that folder
-                instead. Neither is needed: a pattern matches the file's name
-                at any depth, so `*.md` already means `**/*.md`.
-      excluded  A '/' without a leading `*/`. `docs/*.tmp` is matched against
-                the absolute path too, so it skips nothing, in either mode.
-
-    Checked by the settings dialog before it saves and, through
-    `spec.search_problems`, by the window before it searches, since the file
-    can be edited by hand.
-    """
-    problems = [
-        f"Include pattern \"{p}\" contains '/'. Include patterns match a "
-        "file's name at any depth, so use just the name part, e.g. \"*.md\"."
-        for p in included
-        if "/" in p
-    ]
-    problems += [
-        f"Skip pattern \"{p}\" contains '/' but does not start with \"*/\". "
-        "It would skip nothing; write it as \"*/" + p.lstrip("/") + "\"."
-        for p in excluded
-        if "/" in p and not p.startswith("*/")
-    ]
-    return problems
-
-
-def convert_excluded_to_find(pattern: str) -> list[str]:
-    """A find-style exclusion pattern as one `find` test, for a name search.
-
-    The config's spelling is already `find -path`'s, but the usual form
-    `*/node_modules/*` matches what is *inside* the directory rather than the
-    directory itself — pruned that way, find still opens it and tests every
-    entry. Dropping the trailing `/*` prunes the directory as it is reached,
-    and it is the directory's own row that should not be listed either.
-
-        */node_modules/*   ->  -path */node_modules
-        */a/b/*            ->  -path */a/b
-        */docs/*.tmp       ->  -path */docs/*.tmp
-        *.log              ->  -name *.log
-
-    A pattern with a '/' is matched against the whole absolute path find
-    prints, so it has to begin with `*/` to match anything — which is why
-    `pattern_problems` refuses one that does not.
-    """
-    if pattern.startswith("*/") and pattern.endswith("/*"):
-        return ["-path", pattern[:-2]]
-    if "/" in pattern:
-        return ["-path", pattern]
-    return ["-name", pattern]
-
-
-def build_prune_args(excluded: list[str]) -> list[str]:
-    """Exclusions as a `find` prune clause: `( T1 -o T2 … ) -prune -o`.
-
-    Empty when nothing is excluded, so the caller can put it straight in front
-    of the name tests. `included` has no counterpart here on purpose: it is a
-    whitelist of file *types* to read, and applied to names it would hide
-    every folder in the tree.
-    """
-    tests: list[str] = []
-    for pattern in excluded:
-        if tests:
-            tests.append("-o")
-        tests.extend(convert_excluded_to_find(pattern))
-    if not tests:
-        return []
-    return ["(", *tests, ")", "-prune", "-o"]
-
-
-def open_command() -> str:
-    """The Open button's command line — the one call the viewer needs.
-
-    Read per click rather than cached, for the same reason the settings are
-    read per search: a change saved in the dialog has to apply to the next use
-    without restarting the app.
-    """
-    return get_string(load_config(), "open", "command", DEFAULT_OPEN_COMMAND)
-
-
-# -- writing ----------------------------------------------------------------
-
-
-def parse_pattern_lines(text: str) -> list[str]:
-    """A text area's contents as a pattern list: one pattern per line.
-
-    Blank lines are dropped and surrounding whitespace is stripped, so the
-    trailing newline every text area ends up with does not become an empty
-    pattern — which ugrep would take as a glob matching nothing at all.
-    """
-    return [stripped for stripped in (line.strip() for line in text.splitlines()) if stripped]
-
-
-def pattern_lines(patterns: list[str]) -> str:
-    """The inverse: a pattern list as text for a text area."""
-    return "\n".join(patterns)
+# What each field falls back to when its key is missing or unusable.
+_FALLBACK = Settings()
 
 
 def load_settings() -> tuple[Settings, str | None]:
@@ -619,25 +528,21 @@ def load_settings() -> tuple[Settings, str | None]:
     costs only that key — the dialog still opens on the rest of the file.
     """
     config, error = read_config()
-    return (
-        Settings(
-            included=get_patterns(config, "included"),
-            excluded=get_patterns(config, "excluded"),
-            archives=get_bool(config, "search", "archives", DEFAULT_ARCHIVES),
-            archive_depth=get_int(
-                config, "search", "archive_depth", DEFAULT_ARCHIVE_DEPTH, 1, MAX_DEPTH
-            ),
-            open_command=get_string(config, "open", "command", DEFAULT_OPEN_COMMAND),
-            fuzzy=get_int(config, "search", "fuzzy", DEFAULT_FUZZY, 0, MAX_FUZZY),
-            use_included=get_bool(
-                config, "search", "use_included", DEFAULT_USE_INCLUDED
-            ),
-            use_excluded=get_bool(
-                config, "search", "use_excluded", DEFAULT_USE_EXCLUDED
-            ),
-        ),
-        error,
-    )
+    values = {
+        key.field: _read_key(config, key, getattr(_FALLBACK, key.field))
+        for key in KEYS
+    }
+    return Settings(**values), error
+
+
+def open_command() -> str:
+    """The Open button's command line — the one call the viewer needs.
+
+    Read per click rather than cached, for the same reason the settings are
+    read per search: a change saved in the dialog has to apply to the next use
+    without restarting the app.
+    """
+    return load_settings()[0].open_command
 
 
 def save_settings(settings: Settings) -> str | None:

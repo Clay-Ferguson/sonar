@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QTextCursor
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -22,61 +21,44 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
-    QPushButton,
     QSplitter,
-    QStackedWidget,
-    QStatusBar,
-    QStyle,
     QVBoxLayout,
     QWidget,
 )
-from windowchrome import apply_checkboxes, apply_scrollbars, close_markdown_windows
+from windowchrome import apply_scrollbars, close_markdown_windows
 
 from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
 from .config import load_settings
 from .help import show_query_syntax, show_user_guide
-from .highlight import MatchHighlighter
-from .pdfview import PDF_AVAILABLE, PdfPane
+from .preview import PreviewPanel
 from .search import (
     EXIT_MATCHED,
     EXIT_NO_MATCH,
     MODE_CONTENT,
     MODE_NAMES,
     SearchRunner,
-    literal_query_term,
-    match_spans,
     name_search_error,
     name_terms,
     search_error,
 )
 from .settings import show_settings
 from .spec import SearchSpec, search_problems
+from .statusbar import SearchStatusBar
 from .style import (
-    CONTROL_BAR_PADDING,
-    NAV_BUTTON_BG,
-    NAV_GROUP_SPACING,
-    PANE_GAP,
     PRIMARY_BUTTON_BG,
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
-    STATUS_BAR_MARGINS,
     action_button,
-    icon_button,
     menu_style,
     mono_font,
     results_list_style,
-    selection_button_bg,
     splitter_style,
-    status_style,
 )
 from .viewer import (
     cleanup_temp_files,
-    is_pdf,
     open_folder,
     open_in_editor,
-    read_for_preview,
 )
 
 # The `Hit` a row stands for: an absolute path, plus a name inside it when the
@@ -94,51 +76,15 @@ HIT_ROLE = Qt.ItemDataRole.UserRole
 # already and an unspaced arrow disappears into them.
 ARROW = " → "
 
-# The Open button's tooltip, which changes with the selection: a hit inside an
-# archive opens a copy, and that is worth saying before the click rather than
-# after the user has edited one and found the archive unchanged.
-OPEN_TIP = "Open this file in the editor"
-OPEN_TIP_ARCHIVED = (
-    "Open a read-only copy extracted from the archive.\n"
-    "Edits to it do not go back into the archive."
-)
-# A folder row, which only a name search produces: Open goes to the file
-# manager rather than the editor, and that is worth saying before the click.
-OPEN_TIP_FOLDER = "Show this folder in the file manager"
-
 MODE_TIP = (
     "Content: search the text inside files.\n"
     "Filenames: search the names of files and folders."
 )
 
-# The folder button's, which changes with the selection for the same reason
-# Open's does: for a hit inside an archive the folder that opens is the one
-# holding the archive, and that is worth saying before the click.
-FOLDER_TIP = "Show this file's folder in the file manager"
-FOLDER_TIP_ARCHIVED = "Show the folder holding the archive in the file manager"
-
 # Results/preview split, as a ratio of the window width. The preview needs the
 # room; the list only has to show a path.
 SPLIT_LIST = 2
 SPLIT_PREVIEW = 3
-
-# The status bar's activity indicator, and how fast it turns. Text rather than
-# an animated image: Qt ships no spinner widget and no animated icon in the
-# standard pixmaps, and a QMovie would mean carrying a GIF as an asset for one
-# character's worth of motion. These four glyphs in the monospace font the
-# results list already uses read as one rotating bar and take a fixed width,
-# so nothing beside them shifts as it turns.
-#
-# 120ms is fast enough to look continuous and slow enough that a search
-# finishing in one frame does not flash. The timer is the only thing that says
-# a search over a large tree yielding nothing yet is still running.
-SPINNER_FRAMES = "|/-\\"
-SPINNER_INTERVAL_MS = 120
-
-# What the bar says before the first search of a session. Something rather
-# than nothing: an empty strip along the bottom of the window reads as a
-# rendering fault, and "Ready" also shows where a search will report itself.
-STATUS_READY = "Ready"
 
 # And what it says when a search went wrong. The detail is in the dialog that
 # comes with it; this is only what the bar is left showing behind it, in place
@@ -167,26 +113,11 @@ class MainWindow(QMainWindow):
         self._runner.matchFound.connect(self._on_match)
         self._runner.finished.connect(self._on_search_finished)
         self._match_count = 0
-        # Where the spinner is in its cycle, and whether it is turning at all.
-        # The flag is what makes `_set_busy` idempotent — see the note there.
-        self._spinner_frame = 0
-        self._busy = False
         # The search the current results came from — query, folder, mode and
         # the settings it ran with — pinned when it starts and read from here,
         # never from the rows or the config, for as long as its results are on
         # screen. See `spec.py` for why. Blank until the first search.
         self._search = SearchSpec("", "")
-        # The current file's matches, flattened out of the spans dict and put in
-        # reading order, plus where Prev/Next is parked in that list. A flat
-        # list rather than the dict because stepping is what it is for: the dict
-        # is keyed for painting a line, this is ordered for walking the file.
-        self._matches: list[tuple[int, int, int]] = []
-        self._match_index = -1
-        # Which of the two preview widgets is up. The PDF pane keeps its own
-        # matches inside Qt's search model, so this is also what says where
-        # Prev/Next should be reading its count from.
-        self._pdf_showing = False
-
         self._build_menus()
 
         # A QMainWindow so the menu bar is the window's own — Qt places it
@@ -273,146 +204,29 @@ class MainWindow(QMainWindow):
         self.results.setStyleSheet(results_list_style())
         self.results.currentItemChanged.connect(self._on_selection_changed)
 
-        self.preview = QPlainTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.preview.setFont(mono_font())
-        # The gutter, taken out of the document rather than the widget. A
-        # viewport margin looks like the same thing and is not: that strip is
-        # outside the viewport and gets painted in the window color, so it
-        # comes out as a gray band beside the divider instead of a gutter.
-        # The document's own margin is inside the text area, on its Base
-        # background — which is what makes it read as part of the pane. It
-        # applies to all four sides; the left is the one being asked for and
-        # the rest is breathing room the preview was short of anyway.
-        self.preview.document().setDocumentMargin(PANE_GAP)
-        # Attached once, to the document, and fed new spans per file. The
-        # document survives setPlainText, so this outlives every preview.
-        self._highlighter = MatchHighlighter(self.preview.document())
+        # The file on show and the controls under it. The two buttons that act
+        # on the selected row live in its control bar, but what they open is
+        # decided here, from the row and the pinned search.
+        self.panel = PreviewPanel()
+        self.panel.open_button.clicked.connect(self._open_selected)
+        self.panel.folder_button.clicked.connect(self._open_selected_folder)
 
-        # The other preview: a rendered PDF, for the files the text pane can
-        # only describe. None when the QtPdf bindings are missing, in which
-        # case a PDF falls back to that description — the app still runs.
-        self._pdf = PdfPane() if PDF_AVAILABLE else None
-        self._panes = QStackedWidget()
-        self._panes.addWidget(self.preview)
-        if self._pdf is not None:
-            self._panes.addWidget(self._pdf)
-            # The model searches pages lazily, so the number of matches climbs
-            # for about a second after a long PDF opens. The counter has to
-            # follow it up rather than freeze on whatever it was at load.
-            self._pdf.matchCountChanged.connect(self._on_pdf_count_changed)
-
-        # --- the preview's own control bar -------------------------------
-        # Sits inside the right-hand pane rather than under the whole window,
-        # so it reads as belonging to the file being shown above it — and so
-        # dragging the splitter moves it with the pane it controls.
-        self.open_button = action_button(
-            "Open", selection_button_bg(), CONTROL_BAR_PADDING
-        )
-        self.open_button.setToolTip(OPEN_TIP)
-        # Nothing is selected at startup, and "Open" with no file would be a
-        # button that silently does nothing.
-        self.open_button.setEnabled(False)
-        self.open_button.clicked.connect(self._open_selected)
-
-        # Open aimed one level up, so it sits directly beside Open. An icon
-        # rather than a label because "Folder" beside "Open" would read as a
-        # second noun in a row of verbs — and because the desktop's own folder
-        # is the one glyph every file manager has already taught the user to
-        # recognise.
-        #
-        # The neutral gray rather than Open's selection tint, even though it
-        # acts on the same row: the tint is a blue, the themed folder is a
-        # blue, and the icon washed out against it. On a button whose whole
-        # label is a picture, contrast under the picture outranks the color
-        # coding — and secondary gray is a fair reading of it anyway, beside
-        # the Open it is a variation on.
-        self.folder_button = icon_button(
-            QStyle.StandardPixmap.SP_DirIcon,
-            SECONDARY_BUTTON_BG,
-            CONTROL_BAR_PADDING,
-        )
-        self.folder_button.setToolTip(FOLDER_TIP)
-        self.folder_button.setEnabled(False)
-        self.folder_button.clicked.connect(self._open_selected_folder)
-
-        # Prev/Next step between individual matches rather than between lines:
-        # the spans are exact, so a line carrying three hits is three stops.
-        # Both wrap around, which is what makes them usable without also
-        # having to watch the counter to know when to stop.
-        #
-        # Arrows rather than the words: the pair is one control, and two
-        # arrows pointing away from the counter between them say which way
-        # each goes with nothing left to read.
-        self.prev_button = self._nav_button(
-            QStyle.StandardPixmap.SP_ArrowLeft, "Go to the previous match"
-        )
-        self.prev_button.clicked.connect(lambda: self._step_match(-1))
-        self.next_button = self._nav_button(
-            QStyle.StandardPixmap.SP_ArrowRight, "Go to the next match"
-        )
-        self.next_button.clicked.connect(lambda: self._step_match(1))
-
-        # Says which match of how many, because the highlight alone cannot:
-        # every match looks the same until one of them is the current one, and
-        # off screen even that is invisible.
-        self.match_label = QLabel()
-        self.match_label.setToolTip("The current match, and how many this file has")
-
-        self.wrap_check = QCheckBox("Word Wrap")
-        apply_checkboxes(self.wrap_check)
-        self.wrap_check.setChecked(True)  # matches the pane's initial mode
-        self.wrap_check.toggled.connect(self._set_word_wrap)
-
-        # The two arrows and the counter they move are one control, so they
-        # travel as one widget: grouped tight, then centered in the bar by the
-        # stretches on either side of it. Left-justified with everything else
-        # they read as three more buttons in a row of unrelated ones.
-        match_nav = QWidget()
-        nav_row = QHBoxLayout(match_nav)
-        nav_row.setContentsMargins(0, 0, 0, 0)
-        nav_row.setSpacing(NAV_GROUP_SPACING)
-        nav_row.addWidget(self.prev_button)
-        nav_row.addWidget(self.next_button)
-        nav_row.addWidget(self.match_label)
-
-        control_bar = QHBoxLayout()
-        control_bar.setContentsMargins(PANE_GAP, 0, 0, 0)
-        control_bar.addWidget(self.open_button)
-        control_bar.addWidget(self.folder_button)
-        control_bar.addStretch(1)
-        control_bar.addWidget(match_nav)
-        control_bar.addStretch(1)
-        control_bar.addWidget(self.wrap_check)
-
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        # Flush with the splitter edge: the panel is a container, not a frame
-        # of its own, and default margins would inset the preview from the
-        # results list beside it. The gutter that keeps the contents off the
-        # divider is inside the preview and the control bar instead, so it is
-        # drawn in their own background rather than the window's.
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(self._panes, 1)
-        right_layout.addLayout(control_bar)
-
-        # Both panes get the wider bars; applied per scroll bar so the list
-        # and the preview themselves keep native rendering.
-        for area in (self.results, self.preview):
-            apply_scrollbars(area)
+        # The wider scroll bars; applied per scroll bar so the list itself
+        # keeps native rendering. The panel does the same for its own panes.
+        apply_scrollbars(self.results)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
         splitter.setStyleSheet(splitter_style())
         splitter.addWidget(self.results)
-        splitter.addWidget(right_panel)
+        splitter.addWidget(self.panel)
         splitter.setStretchFactor(0, SPLIT_LIST)
         splitter.setStretchFactor(1, SPLIT_PREVIEW)
         splitter.setSizes([SPLIT_LIST * 100, SPLIT_PREVIEW * 100])
         layout.addWidget(splitter, 1)
 
-        self._build_status_bar()
+        self._status = SearchStatusBar()
+        self.setStatusBar(self._status)
 
         self.query_edit.setFocus()
 
@@ -462,90 +276,6 @@ class MainWindow(QMainWindow):
         options.addAction(guide_action)
 
     # -- the status bar -----------------------------------------------------
-
-    def _build_status_bar(self) -> None:
-        """The line along the bottom: an activity indicator and a message.
-
-        A real `QStatusBar` rather than one more row in the central layout,
-        because the menu items already carry `setStatusTip` text and this is
-        the widget Qt shows it in — hovering Options ▸ Settings says what it
-        does, for free, the moment the bar exists. The size grip is off: the
-        window is resizable from any edge already, and the grip reads as a
-        second thing in a bar that has one.
-
-        The spinner and the message are two labels rather than one so the
-        message cannot shift sideways as the spinner turns, and the spinner's
-        width is pinned for the same reason — the glyphs are monospaced, but
-        an empty spinner between searches would otherwise collapse to nothing
-        and drag the message left with it.
-        """
-        self._status_spinner = QLabel()
-        self._status_spinner.setFont(mono_font())
-        self._status_spinner.setFixedWidth(
-            self._status_spinner.fontMetrics().horizontalAdvance("M")
-        )
-        self._status_message = QLabel(STATUS_READY)
-
-        bar = QStatusBar()
-        bar.setSizeGripEnabled(False)
-        # Contents margins rather than a stylesheet `padding`, which a
-        # QStatusBar ignores outright — see STATUS_BAR_MARGINS. Set once here:
-        # they survive the stylesheet `_set_busy` swaps on every search.
-        bar.setContentsMargins(*STATUS_BAR_MARGINS)
-        bar.addWidget(self._status_spinner)
-        bar.addWidget(self._status_message, 1)
-        self.setStatusBar(bar)
-        # Directly, not through `_set_busy`: the flag already says idle, so
-        # that call is the no-op the guard is there to make it.
-        bar.setStyleSheet(status_style(False))
-
-        # Started and stopped by `_set_busy`, never left running: it is a
-        # repaint of two labels every 120ms, which is nothing next to a search
-        # and is still not worth doing while the window sits idle.
-        self._spinner_timer = QTimer(self)
-        self._spinner_timer.setInterval(SPINNER_INTERVAL_MS)
-        self._spinner_timer.timeout.connect(self._tick_spinner)
-
-    def _set_busy(self, busy: bool) -> None:
-        """Turn the searching look on or off: the green, and the spinner.
-
-        The color is the half of this that can be read without reading, which
-        is the point of it — a glance at the bottom of the window says whether
-        the thing is still working. The spinner is the half that says it is
-        still working *now*, which the color alone cannot: a search over a
-        large tree that has found nothing yet leaves every other part of the
-        window exactly as it was before Search was pressed.
-        """
-        # Idempotent, and it has to be: `_on_match` sets the status on every
-        # hit, and re-entering the busy state would restart the timer and reset
-        # the frame each time — the spinner would sit frozen on its first glyph
-        # for exactly the search that is streaming results fastest.
-        if busy == self._busy:
-            return
-        self._busy = busy
-        self.statusBar().setStyleSheet(status_style(busy))
-        if busy:
-            self._spinner_frame = 0
-            self._status_spinner.setText(SPINNER_FRAMES[0])
-            self._spinner_timer.start()
-        else:
-            self._spinner_timer.stop()
-            self._status_spinner.clear()
-
-    def _tick_spinner(self) -> None:
-        self._spinner_frame = (self._spinner_frame + 1) % len(SPINNER_FRAMES)
-        self._status_spinner.setText(SPINNER_FRAMES[self._spinner_frame])
-
-    def _set_status(self, message: str, busy: bool = False) -> None:
-        """Put `message` in the status bar, in one of its two states.
-
-        This is where a search says how it is going — the title bar is the
-        app's name and nothing else. A search's numbers belong at the bottom
-        of the window beside the results they describe, not in a strip the
-        window manager may truncate, ellipsize or refuse to widen.
-        """
-        self._status_message.setText(message)
-        self._set_busy(busy)
 
     def _searched_note(self) -> str:
         """" — 1,234 files searched" — or nothing, when ugrep did not say.
@@ -626,15 +356,16 @@ class MainWindow(QMainWindow):
             self._report_problem(f"Not a folder:\n\n{folder}")
             return
 
+        # Clearing the list clears the panel through the selection signal
+        # when a row was selected; said outright for when none was.
         self.results.clear()
-        self._show_pane(False)
-        self.preview.clear()
+        self.panel.clear()
         self._match_count = 0
         # Pinned here, for the whole life of these results. The root is the
         # same value ugrep is given, so every path it prints is genuinely
         # underneath it and `_display_path` can rely on the prefix matching.
         self._search = SearchSpec.from_settings(settings, query, folder, names)
-        self._set_status(f"Searching {folder}…", busy=True)
+        self._status.set_status(f"Searching {folder}…", busy=True)
         self._runner.start(self._search)
 
     # -- rows ---------------------------------------------------------------
@@ -705,7 +436,7 @@ class MainWindow(QMainWindow):
         self._match_count += 1
         # Cheap enough to do per hit, and it is what turns the spinner from
         # "still running" into "still finding things".
-        self._set_status(
+        self._status.set_status(
             f"Searching {self._search.root}… {self._match_count:,} found",
             busy=True,
         )
@@ -743,12 +474,12 @@ class MainWindow(QMainWindow):
             if not problem and not stderr.strip():
                 problem = f"{program} exited with status {exit_code}."
         if problem:
-            self._set_status(STATUS_FAILED)
+            self._status.set_status(STATUS_FAILED)
             self._report_problem(problem)
             return
 
         if not self._match_count:
-            self._set_status(
+            self._status.set_status(
                 f"No matches{self._searched_note()} in {self._search.root}"
             )
             return
@@ -759,7 +490,7 @@ class MainWindow(QMainWindow):
         # search has finished. A name search lists folders too, so its rows
         # are counted as items rather than files.
         noun = "item" if self._search.names else "file"
-        self._set_status(
+        self._status.set_status(
             f"{self._match_count:,} {noun}"
             f"{'' if self._match_count == 1 else 's'} found"
             f"{self._searched_note()} in {self._search.root}"
@@ -817,48 +548,18 @@ class MainWindow(QMainWindow):
         self.results.blockSignals(False)
 
         self._match_count = self.results.count()
-        # Signals were blocked across the rebuild, so the buttons' state was
-        # not refreshed by the clear; put it back in step with the list.
-        self._enable_row_actions(False)
-        if selected_hit:
-            for row in range(self.results.count()):
-                if self.results.item(row).data(HIT_ROLE) == selected_hit:
-                    self.results.setCurrentRow(row)
-                    break
+        # Signals were blocked across the rebuild, so the panel was not told
+        # the selection went. Restoring it re-shows that file; if it cannot be
+        # restored — nothing was selected, or its file vanished and its row was
+        # dropped — the panel is emptied rather than left showing a row that
+        # is no longer in the list.
+        for row in range(self.results.count() if selected_hit else 0):
+            if self.results.item(row).data(HIT_ROLE) == selected_hit:
+                self.results.setCurrentRow(row)
+                return
+        self.panel.clear()
 
     # -- preview -----------------------------------------------------------
-
-    def _show_pane(self, pdf: bool) -> None:
-        """Put either the PDF pane or the text pane in front.
-
-        Leaving the PDF pane also lets go of its document, so a file stays
-        open only while it is the one being read.
-
-        Word Wrap goes with the text pane: a rendered page has no line
-        wrapping to turn off, and a checkbox that does nothing to what is on
-        screen is worse than a dim one.
-        """
-        if self._pdf is None:
-            return
-        if self._pdf_showing and not pdf:
-            self._pdf.clear()
-        self._pdf_showing = pdf
-        self._panes.setCurrentWidget(self._pdf if pdf else self.preview)
-        self.wrap_check.setEnabled(not pdf)
-
-    def _set_word_wrap(self, wrap: bool) -> None:
-        """Toggle wrapping in the preview pane.
-
-        Deliberately not persisted: it is a per-look preference about the file
-        on screen right now, and it starts on because most of what turns up in
-        a content search is prose or long lines that would otherwise need
-        horizontal scrolling to read at all.
-        """
-        self.preview.setLineWrapMode(
-            QPlainTextEdit.LineWrapMode.WidgetWidth
-            if wrap
-            else QPlainTextEdit.LineWrapMode.NoWrap
-        )
 
     def _open_selected(self) -> None:
         """Hand the selected file to the editor.
@@ -889,191 +590,18 @@ class MainWindow(QMainWindow):
         if error:
             self._report_problem(error)
 
-    def _enable_row_actions(self, enabled: bool) -> None:
-        """Open and the folder button, which are live or dim together.
-
-        Both act on the current row and neither can do anything without one,
-        so they have a single answer between them; kept in one place so a
-        third such button cannot be added and then missed at one of the two
-        sites that flips them.
-        """
-        self.open_button.setEnabled(enabled)
-        self.folder_button.setEnabled(enabled)
-
-    def _nav_button(self, pixmap: QStyle.StandardPixmap, tip: str) -> QPushButton:
-        """One of the two match-stepping buttons, styled alike.
-
-        Square and icon-only, sized off the padding of the text buttons beside
-        it so the whole bar stays one height.
-        """
-        button = icon_button(pixmap, NAV_BUTTON_BG, CONTROL_BAR_PADDING)
-        button.setToolTip(tip)
-        # Disabled until a file with matches is on screen, for the same reason
-        # Open is: a button that silently does nothing is worse than a dim one.
-        button.setEnabled(False)
-        return button
-
     def _on_selection_changed(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
     ) -> None:
-        """Show the current row's file.
+        """Show the current row's file, with the search that found it.
 
         Wired to the current *item* rather than to clicks, so walking the
         results with the arrow keys previews each file too.
         """
-        # Both act on the current row, so they are live exactly when one
-        # exists.
-        self._enable_row_actions(current is not None)
         if current is None:
-            self.open_button.setToolTip(OPEN_TIP)
-            self.folder_button.setToolTip(FOLDER_TIP)
-            self._show_pane(False)
-            self.preview.clear()
-            # Clearing the pane has to clear what the pane was about, or Prev
-            # and Next stay live over a document that no longer has the matches
-            # they would step to.
-            self._highlighter.set_spans({})
-            self._adopt_matches({})
-            return
-        hit = current.data(HIT_ROLE)
-        is_folder = not hit.member and os.path.isdir(hit.path)
-        if is_folder:
-            self.open_button.setToolTip(OPEN_TIP_FOLDER)
+            self.panel.clear()
         else:
-            self.open_button.setToolTip(OPEN_TIP_ARCHIVED if hit.member else OPEN_TIP)
-        self.folder_button.setToolTip(FOLDER_TIP_ARCHIVED if hit.member else FOLDER_TIP)
-
-        # A PDF is rendered rather than described — but only if it renders:
-        # a failure comes back as a message, which the text pane then shows
-        # in place of the "binary file" notice it would have shown anyway.
-        #
-        # A PDF *inside* an archive is not one of these: `PdfPane` loads a
-        # path, and there is no path to a name inside a zip. It falls through
-        # to the text pane, which says so.
-        text = None
-        if self._pdf is not None and not is_folder and not hit.member and is_pdf(hit.path):
-            # After a name search the query is about the name, so nothing in
-            # the pages is marked.
-            term = None if self._search.names else literal_query_term(self._search.query)
-            text = self._pdf.show_file(hit.path, term)
-            if text is None:
-                self._show_pane(True)
-                self._adopt_pdf_matches()
-                return
-        self._show_pane(False)
-        if text is not None:
-            self._highlighter.set_spans({})
-            self.preview.setPlainText(text)
-            self._adopt_matches({})
-            return
-
-        text, is_notice = read_for_preview(hit, self._search.depth)
-        # A notice — binary, too large, unreadable — is this app's own words
-        # rather than the file, so there is nothing in it ugrep matched and its
-        # line numbers mean nothing. Asking ugrep about it would also be asking
-        # about a file that by definition cannot be shown.
-        # And after a name search the query matched the name, not the text, so
-        # there is nothing in the file to ask ugrep about either.
-        spans = (
-            {}
-            if is_notice or not self._search.query or self._search.names
-            else match_spans(self._search, hit)
-        )
-        # Before setPlainText, not after: replacing the text is itself what
-        # makes Qt run the highlighter over the document, so spans set first
-        # are painted by that pass instead of needing a second one.
-        self._highlighter.set_spans(spans)
-        self.preview.setPlainText(text)
-        self._adopt_matches(spans)
-
-    # -- stepping through the matches --------------------------------------
-
-    def _adopt_matches(self, spans: dict[int, list[tuple[int, int]]]) -> None:
-        """Take on a new file's matches and go to the first one.
-
-        Flattens the spans into reading order — the dict is keyed by line for
-        painting, which says nothing about what follows what — and lands on
-        match 1. With none, the preview goes to the top instead: long searches
-        otherwise leave it scrolled wherever the last file was left.
-        """
-        self._matches = sorted(
-            (line, column, length)
-            for line, spots in spans.items()
-            for column, length in spots
-        )
-        self._match_index = -1
-        if self._matches:
-            self._go_to_match(0)
-        else:
-            self._highlighter.set_current(None)
-            self._update_match_nav()
-            self.preview.moveCursor(self.preview.textCursor().MoveOperation.Start)
-
-    def _adopt_pdf_matches(self) -> None:
-        """The PDF pane's equivalent: its matches live in Qt's search model.
-
-        There is no list to flatten — the model is the list, and it is still
-        filling in — so this only resets the position and lands on match 1 if
-        there is one yet. If there is not, `_on_pdf_count_changed` does it
-        when the first one turns up.
-        """
-        self._matches = []
-        self._match_index = -1
-        if self._match_total():
-            self._go_to_match(0)
-        else:
-            self._update_match_nav()
-
-    def _on_pdf_count_changed(self) -> None:
-        """The PDF's match count grew (or the file changed under it)."""
-        if not self._pdf_showing:
-            return
-        if self._match_index < 0 and self._match_total():
-            self._go_to_match(0)
-        else:
-            self._update_match_nav()
-
-    def _match_total(self) -> int:
-        """How many matches the file on screen has, whichever pane shows it."""
-        if self._pdf_showing and self._pdf is not None:
-            return self._pdf.count()
-        return len(self._matches)
-
-    def _step_match(self, delta: int) -> None:
-        """Move `delta` matches from the current one, wrapping at either end."""
-        total = self._match_total()
-        if total:
-            self._go_to_match((self._match_index + delta) % total)
-
-    def _go_to_match(self, index: int) -> None:
-        """Make match `index` current: mark it, scroll to it, and count it."""
-        self._match_index = index
-        if self._pdf_showing and self._pdf is not None:
-            self._pdf.go_to(index)
-            self._update_match_nav()
-            return
-        line, column, _length = self._matches[index]
-        self._highlighter.set_current((line, column))
-        block = self.preview.document().findBlockByNumber(line)
-        if block.isValid():
-            cursor = QTextCursor(block)
-            cursor.setPosition(block.position() + column - 1)
-            self.preview.setTextCursor(cursor)
-            # centerCursor rather than ensureCursorVisible: a match one line
-            # from the edge of the viewport is technically visible and still
-            # reads as "it did not scroll and I got lucky".
-            self.preview.centerCursor()
-        self._update_match_nav()
-
-    def _update_match_nav(self) -> None:
-        """Sync the two buttons and the counter to the current match."""
-        total = self._match_total()
-        self.prev_button.setEnabled(total > 0)
-        self.next_button.setEnabled(total > 0)
-        # Blank rather than "0 of 0" when there is nothing to step through: the
-        # dim buttons already say so, and a zeroed counter beside them reads as
-        # a file that lost its matches rather than one that never had any.
-        self.match_label.setText(f"{self._match_index + 1} of {total}" if total else "")
+            self.panel.show_hit(current.data(HIT_ROLE), self._search)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -1083,16 +611,10 @@ class MainWindow(QMainWindow):
         self._runner.stop()
         # And the spinner, which would otherwise go on repainting two labels
         # while the window is being torn down around them.
-        self._spinner_timer.stop()
-        # And the PDF, for the same reason and a sharper consequence: the
-        # search model fills its pages in lazily, so closing the window while
-        # one is still being searched leaves pdfium walking a document Qt is
-        # already tearing down. Measured: the process exits on SIGSEGV rather
-        # than cleanly, which from a terminal is "Segmentation fault" after a
-        # session that went fine. Clearing first drops the model and the
-        # document while there is still a window to own them.
-        if self._pdf is not None:
-            self._pdf.clear()
+        self._status.stop()
+        # And the PDF, for a sharper reason: closing on a PDF that is still
+        # being searched exits on SIGSEGV. See `PreviewPanel.shutdown`.
+        self.panel.shutdown()
         # And without this, every archive member opened this session is still
         # sitting in /tmp. An editor holding one open keeps its own buffer, so
         # removing it here costs the user nothing.

@@ -26,15 +26,9 @@ from sonarex.search import (
     build_argv,
     build_match_argv,
 )
+from sonarex.preview import FOLDER_TIP, FOLDER_TIP_ARCHIVED, OPEN_TIP, OPEN_TIP_ARCHIVED
 from sonarex.viewer import read_for_preview
-from sonarex.window import (
-    FOLDER_TIP,
-    FOLDER_TIP_ARCHIVED,
-    HIT_ROLE,
-    OPEN_TIP,
-    OPEN_TIP_ARCHIVED,
-    MainWindow,
-)
+from sonarex.window import HIT_ROLE, MainWindow
 
 from conftest import (
     MEMBERS,
@@ -104,7 +98,7 @@ def test_a_zip_is_one_opaque_row_when_off(conf, tree, search):
     assert sorted(labels(window)) == ["docs.zip", "loose.txt", "truncated.zip"]
 
     select(window, "docs.zip")
-    assert window.preview.toPlainText() == "Binary file — cannot preview."
+    assert window.panel.text.toPlainText() == "Binary file — cannot preview."
     assert highlighted(window) == []
     assert nav(window) == (False, "")
 
@@ -152,7 +146,7 @@ def test_a_member_previews_and_highlights(conf, tree, search, member, text, mark
     window = search(tree, "needle")
     select(window, f"docs.zip → {member}")
     if text is not None:
-        assert window.preview.toPlainText() == text
+        assert window.panel.text.toPlainText() == text
     assert highlighted(window) == marks
 
 
@@ -162,7 +156,7 @@ def test_a_plain_compressed_file_previews_as_text(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     select(window, "notes.txt.gz")
-    assert window.preview.toPlainText() == "gzipped needle content\nsecond gz needle\n"
+    assert window.panel.text.toPlainText() == "gzipped needle content\nsecond gz needle\n"
     assert highlighted(window) == ["needle", "needle"]
 
 
@@ -170,7 +164,7 @@ def test_a_tarball_member_previews(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     select(window, "bundle.tar.gz → doc/one.txt")
-    assert window.preview.toPlainText() == MEMBERS["doc/one.txt"].decode()
+    assert window.panel.text.toPlainText() == MEMBERS["doc/one.txt"].decode()
 
 
 # -- more container formats ------------------------------------------------
@@ -199,7 +193,7 @@ def test_other_tarball_formats_are_searched(conf, tmp_path, search, name, mode):
     assert sorted(labels(window)) == [f"{name} → doc/one.txt", f"{name} → doc/sub/one.txt"]
 
     select(window, f"{name} → doc/sub/one.txt")
-    assert window.preview.toPlainText() == MEMBERS["doc/sub/one.txt"].decode()
+    assert window.panel.text.toPlainText() == MEMBERS["doc/sub/one.txt"].decode()
     assert highlighted(window) == ["needle"]
 
 
@@ -212,12 +206,12 @@ def test_stepping_through_a_member(conf, tree, search):
     select(window, "docs.zip → doc/one.txt")
     assert nav(window) == (True, "1 of 2")
 
-    window._step_match(1)
-    assert window.match_label.text() == "2 of 2"
-    window._step_match(1)
-    assert window.match_label.text() == "1 of 2"  # wraps forward
-    window._step_match(-1)
-    assert window.match_label.text() == "2 of 2"  # and back
+    window.panel.step_match(1)
+    assert window.panel.match_label.text() == "2 of 2"
+    window.panel.step_match(1)
+    assert window.panel.match_label.text() == "1 of 2"  # wraps forward
+    window.panel.step_match(-1)
+    assert window.panel.match_label.text() == "2 of 2"  # and back
 
     # Exactly one match is the hot one at any time.
     assert len(highlighted(window, current_only=True)) == 1
@@ -227,9 +221,9 @@ def test_switching_rows_restarts_the_count(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     select(window, "docs.zip → doc/one.txt")
-    window._step_match(1)
+    window.panel.step_match(1)
     select(window, "docs.zip → doc/a[1].txt")
-    assert window.match_label.text() == "1 of 1"
+    assert window.panel.match_label.text() == "1 of 1"
 
 
 def test_a_fresh_search_leaves_the_nav_dim(conf, tree, search):
@@ -404,9 +398,9 @@ def test_the_open_tooltip_follows_the_selection(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     select(window, "docs.zip → doc/one.txt")
-    assert window.open_button.toolTip() == OPEN_TIP_ARCHIVED
+    assert window.panel.open_button.toolTip() == OPEN_TIP_ARCHIVED
     select(window, "loose.txt")
-    assert window.open_button.toolTip() == OPEN_TIP
+    assert window.panel.open_button.toolTip() == OPEN_TIP
 
 
 # -- the folder button -----------------------------------------------------
@@ -420,7 +414,7 @@ def test_the_folder_button_opens_the_rows_folder(conf, tree, search, spawned):
     window = search(tree, "needle")
     select(window, "loose.txt")
 
-    window.folder_button.click()
+    window.panel.folder_button.click()
 
     assert spawned == [[NOOP_OPENER, str(tree)]]
 
@@ -435,7 +429,7 @@ def test_the_folder_button_opens_an_archives_own_folder(conf, tree, search, spaw
     window = search(tree, "needle")
     select(window, "docs.zip → doc/one.txt")
 
-    window.folder_button.click()
+    window.panel.folder_button.click()
 
     assert spawned == [[NOOP_OPENER, str(tree)]]
     assert viewer._temp_root is None
@@ -444,22 +438,22 @@ def test_the_folder_button_opens_an_archives_own_folder(conf, tree, search, spaw
 def test_the_folder_button_follows_the_selection(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
-    assert not window.folder_button.isEnabled()
+    assert not window.panel.folder_button.isEnabled()
 
     select(window, "docs.zip → doc/one.txt")
-    assert window.folder_button.isEnabled()
-    assert window.folder_button.toolTip() == FOLDER_TIP_ARCHIVED
+    assert window.panel.folder_button.isEnabled()
+    assert window.panel.folder_button.toolTip() == FOLDER_TIP_ARCHIVED
     select(window, "loose.txt")
-    assert window.folder_button.toolTip() == FOLDER_TIP
+    assert window.panel.folder_button.toolTip() == FOLDER_TIP
 
 
 def test_the_folder_button_is_a_square_the_height_of_the_row(conf, tree, search):
     conf(archives=False)
     window = search(tree, "needle")
 
-    size = window.folder_button.size()
+    size = window.panel.folder_button.size()
     assert size.width() == size.height()
-    assert size.height() == window.open_button.sizeHint().height()
+    assert size.height() == window.panel.open_button.sizeHint().height()
 
 
 def test_the_folder_is_reported_when_it_is_gone(tmp_path, spawned):
@@ -508,9 +502,9 @@ def test_a_pdf_inside_an_archive_is_found_but_not_rendered(conf, pdf_tree, searc
     assert "withpdf.zip → doc.pdf" in labels(window)
 
     select(window, "withpdf.zip → doc.pdf")
-    assert window.preview.toPlainText().startswith("PDFs inside archives cannot be previewed.")
-    assert window._pdf_showing is False
-    assert window._panes.currentWidget() is window.preview
+    assert window.panel.text.toPlainText().startswith("PDFs inside archives cannot be previewed.")
+    assert window.panel.pdf_showing is False
+    assert window.panel.panes.currentWidget() is window.panel.text
     assert nav(window) == (False, "")
 
 
@@ -544,10 +538,10 @@ def test_a_loose_pdf_still_uses_the_pdf_pane(conf, pdf_tree, search, qtbot):
     conf(archives=True)
     window = search(pdf_tree, "needle")
     select(window, "loose.pdf")
-    assert window._pdf_showing is True
-    assert window._panes.currentWidget() is window._pdf
+    assert window.panel.pdf_showing is True
+    assert window.panel.panes.currentWidget() is window.panel.pdf
     # The search model fills in lazily, so the count climbs after the load.
-    qtbot.waitUntil(lambda: window._pdf.count() > 0, timeout=5000)
+    qtbot.waitUntil(lambda: window.panel.pdf.count() > 0, timeout=5000)
 
 
 # -- repeated searches -----------------------------------------------------
@@ -637,7 +631,7 @@ def test_the_rows_stay_relative_to_the_folder_searched(conf, tree, search, tmp_p
     window.folder_edit.setText(str(tmp_path))
     item = select(window, "loose.txt")
     assert item.data(HIT_ROLE) == Hit(os.path.join(tree, "loose.txt"))
-    assert window.preview.toPlainText() == "loose needle on disk\n"
+    assert window.panel.text.toPlainText() == "loose needle on disk\n"
 
 
 # -- the folder row --------------------------------------------------------

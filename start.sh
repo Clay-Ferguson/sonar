@@ -13,4 +13,10 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+# An activated virtualenv — VS Code's integrated terminal activates .venv on
+# its own — makes uv warn that VIRTUAL_ENV "does not match the project
+# environment" before ignoring it. The project environment is always the one
+# wanted here, so drop the variable rather than read past the warning.
+unset VIRTUAL_ENV
+
 exec uv run --directory "${HERE}" python -m sonarex "$@"

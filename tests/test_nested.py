@@ -52,19 +52,19 @@ def test_a_nested_member_previews_and_steps(conf, nested_tree, search):
     conf(archives=True, depth=3)
     window = search(nested_tree, "needle")
     select(window, DEEP_ROW)
-    assert window.preview.toPlainText() == DEEP_TEXT
+    assert window.panel.text.toPlainText() == DEEP_TEXT
     assert highlighted(window) == ["needle", "needle"]
     assert nav(window) == (True, "1 of 2")
 
-    window._step_match(1)
-    assert window.match_label.text() == "2 of 2"
+    window.panel.step_match(1)
+    assert window.panel.match_label.text() == "2 of 2"
 
 
 def test_the_top_level_sibling_still_works(conf, nested_tree, search):
     conf(archives=True, depth=3)
     window = search(nested_tree, "needle")
     select(window, TOP_ROW)
-    assert window.preview.toPlainText() == "plain needle at level one\n"
+    assert window.panel.text.toPlainText() == "plain needle at level one\n"
     assert highlighted(window) == ["needle"]
 
 
@@ -110,7 +110,7 @@ def test_a_colon_in_a_name_is_not_a_level_at_depth_one(conf, colon_tree, search)
     assert labels(window) == ["odd.zip → notes:draft.txt"]
 
     select(window, "odd.zip → notes:draft.txt")
-    assert window.preview.toPlainText() == "colon needle here\n"
+    assert window.panel.text.toPlainText() == "colon needle here\n"
     assert highlighted(window) == ["needle"]
 
 
@@ -127,7 +127,7 @@ def test_depth_two_stops_one_short(conf, nested_tree, search):
     assert sorted(labels(window)) == sorted([middle, TOP_ROW])
 
     select(window, middle)
-    assert window.preview.toPlainText() == "Binary file — cannot preview."
+    assert window.panel.text.toPlainText() == "Binary file — cannot preview."
     assert nav(window) == (False, "")
 
 
@@ -141,10 +141,10 @@ def test_lowering_the_depth_after_a_search_changes_nothing_on_screen(
     window = search(nested_tree, "needle")
     conf(archives=True, depth=1)
     select(window, DEEP_ROW)
-    assert window.preview.toPlainText() == DEEP_TEXT
+    assert window.panel.text.toPlainText() == DEEP_TEXT
     assert highlighted(window) == ["needle", "needle"]
 
     # Turning archives off altogether, likewise.
     conf(archives=False)
     select(window, TOP_ROW)
-    assert window.preview.toPlainText() == "plain needle at level one\n"
+    assert window.panel.text.toPlainText() == "plain needle at level one\n"

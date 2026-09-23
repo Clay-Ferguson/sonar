@@ -43,12 +43,12 @@ def status(window) -> str:
     The window title used to carry this and is now only the app's name, so a
     test asking "what did the search report" reads it here.
     """
-    return window._status_message.text()
+    return window._status.message.text()
 
 
 def searching(window) -> bool:
     """Whether the status bar is in its searching state — green, spinner on."""
-    return window._busy
+    return window._status.busy
 
 
 def highlighted(window, current_only=False) -> list[str]:
@@ -64,7 +64,7 @@ def highlighted(window, current_only=False) -> list[str]:
         wanted.add(MATCH_BG.lower())
 
     found = []
-    block = window.preview.document().begin()
+    block = window.panel.text.document().begin()
     while block.isValid():
         for run in block.layout().formats():
             if run.format.background().color().name().lower() in wanted:
@@ -75,4 +75,4 @@ def highlighted(window, current_only=False) -> list[str]:
 
 def nav(window) -> tuple[bool, str]:
     """Whether Prev/Next are live, and what the counter reads."""
-    return (window.next_button.isEnabled(), window.match_label.text())
+    return (window.panel.next_button.isEnabled(), window.panel.match_label.text())

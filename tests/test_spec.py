@@ -8,7 +8,7 @@ time a search looks at the config.
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -43,21 +43,21 @@ def test_a_name_search_carries_only_the_prune_clause():
 
 
 def test_archives_off_is_depth_zero_whatever_the_depth():
-    spec = SearchSpec.from_settings(SETTINGS._replace(archives=False), "q", "/f")
+    spec = SearchSpec.from_settings(replace(SETTINGS, archives=False), "q", "/f")
     assert spec.depth == 0
 
 
 def test_switched_off_lists_are_not_applied():
-    off = SETTINGS._replace(use_included=False, use_excluded=False)
+    off = replace(SETTINGS, use_included=False, use_excluded=False)
     assert SearchSpec.from_settings(off, "q", "/f").globs == ()
     assert SearchSpec.from_settings(off, "q", "/f", names=True).prune == ()
 
 
 def test_problems_only_count_the_lists_a_search_applies():
-    bad = SETTINGS._replace(included=["docs/*.md"], excluded=["docs/*.tmp"])
+    bad = replace(SETTINGS, included=["docs/*.md"], excluded=["docs/*.tmp"])
     assert len(search_problems(bad)) == 2
     assert len(search_problems(bad, names=True)) == 1
-    assert search_problems(bad._replace(use_included=False, use_excluded=False)) == []
+    assert search_problems(replace(bad, use_included=False, use_excluded=False)) == []
 
 
 def test_a_spec_cannot_be_changed_once_pinned():

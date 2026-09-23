@@ -21,7 +21,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import Settings, build_glob_args, build_prune_args, pattern_problems
+from .config import Settings
+from .patterns import build_glob_args, build_prune_args, pattern_problems
 
 
 @dataclass(frozen=True)
