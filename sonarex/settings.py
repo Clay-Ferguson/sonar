@@ -405,8 +405,8 @@ class SettingsDialog(QDialog):
             return
         error = save_settings(
             Settings(
-                included=included,
-                excluded=excluded,
+                included=tuple(included),
+                excluded=tuple(excluded),
                 archives=self.archives_check.isChecked(),
                 archive_depth=self.depth_combo.currentIndex() + 1,
                 open_command=self.open_edit.text().strip(),

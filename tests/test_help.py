@@ -121,7 +121,8 @@ def test_each_item_opens_its_document(qtbot, tmp_path, label, name):
     assert len(_WINDOWS) == 1
     dialog = next(iter(_WINDOWS.values()))
     assert dialog.windowTitle() == f"Sonar — {label}"
-    assert (DOCS_DIR / name).read_text().splitlines()[0].lstrip("# ") in dialog.view.document().toPlainText()
+    heading = (DOCS_DIR / name).read_text().splitlines()[0].lstrip("# ")
+    assert heading in dialog.view.document().toPlainText()
 
 
 def test_opening_the_same_document_twice_leaves_one_window(qtbot, tmp_path):

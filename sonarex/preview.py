@@ -97,10 +97,12 @@ class PreviewPanel(QWidget):
         # background — which is what makes it read as part of the pane. It
         # applies to all four sides; the left is the one being asked for and
         # the rest is breathing room the preview was short of anyway.
-        self.text.document().setDocumentMargin(PANE_GAP)
+        document = self.text.document()
+        assert document is not None  # a QPlainTextEdit always has one
+        document.setDocumentMargin(PANE_GAP)
         # Attached once, to the document, and fed new spans per file. The
         # document survives setPlainText, so this outlives every preview.
-        self._highlighter = MatchHighlighter(self.text.document())
+        self._highlighter = MatchHighlighter(document)
 
         # The other preview: a rendered PDF, for the files the text pane can
         # only describe. None when the QtPdf bindings are missing, in which

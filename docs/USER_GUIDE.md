@@ -62,7 +62,7 @@ The easiest way is the Debian package. If you have a `sonarex_…_all.deb` file,
 sudo apt install ./sonarex_0.1.0_all.deb
 ```
 
-`apt` fetches everything Sonar needs along with it, ugrep included. To build the package yourself, run `./build-deb-install.sh` in the Sonar folder; the file lands in `dist/`.
+`apt` fetches everything Sonar needs along with it, ugrep included. To build the package yourself, run `packaging/build-deb.sh` in the Sonar folder; the file lands in `dist/`.
 
 Afterwards, "Sonar" appears in your application grid, dock and alt-tab like any other app. Launched that way it opens on your current working directory, with the folder row editable as always.
 

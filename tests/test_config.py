@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 
 from helpers import current_spec
-
 from sonarex import config
 
 

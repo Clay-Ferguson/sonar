@@ -13,16 +13,16 @@ from __future__ import annotations
 import os
 
 import pytest
+from PyQt6.QtCore import QByteArray
 
 from helpers import labels, searching, select, status
 from sonarex import runner as runner_module
 from sonarex.query import MODE_CONTENT, MODE_NAMES
 from sonarex.runner import STATS_FILES, SearchRunner, name_search_error
 from sonarex.spec import SearchSpec
-from sonarex.style import STATUS_BAR_MARGINS
 from sonarex.statusbar import SPINNER_FRAMES, STATUS_READY
+from sonarex.style import STATUS_BAR_MARGINS
 from sonarex.window import HIT_ROLE, STATUS_FAILED, MainWindow
-
 
 # -- telling the stats block from a result ---------------------------------
 
@@ -240,7 +240,7 @@ class _Chunks:
         self._chunks = list(chunks)
 
     def readAllStandardOutput(self):
-        return self._chunks.pop(0)
+        return QByteArray(self._chunks.pop(0))
 
 
 def test_a_character_split_across_two_reads_is_rejoined(qtbot):

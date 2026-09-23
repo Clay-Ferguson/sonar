@@ -18,9 +18,11 @@ The modules are heavily commented, and the comments record *why* (usually with m
 
 The folder is the only CLI argument, is optional (`nargs="?"` → the current directory), and only prefills the folder row; no search ever runs automatically. Startup failures are `QMessageBox`es, not argparse/stderr errors, because the app is launched from a desktop icon — which is also why the argument must stay optional.
 
-Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` under `python3 -I`, so neither `PYTHONPATH` nor pip user installs can shadow the distribution's PyQt6. See `build-deb-install.sh`.
+Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` under `python3 -I`, so neither `PYTHONPATH` nor pip user installs can shadow the distribution's PyQt6. See `packaging/build-deb.sh`.
 
 ## Layout
+
+Top level: `sonarex/` (the app), `docs/` (runtime help content, shipped), `tests/`, `packaging/` (`build-deb.sh`, the `.desktop` template, and `icons/` with their source art and `make-icons.py`), `start.sh` and `lint.sh`. Tool settings live in `ruff.toml`, `pyrightconfig.json` and `pytest.ini`, so `pyproject.toml` stays the runtime dependency list. The package:
 
 - `__main__.py` — entry point: argparse, `QApplication`, ugrep check, folder resolution.
 - `config.py` — YAML config (`Settings`, a frozen dataclass; `load_settings`/`save_settings`), read **at the moment of use** (once per search, and `open_command()` per Open click), so saved changes need no restart. Every key is one row of `KEYS` (field, section, name, kind, comment), which drives loading, rendering and the known-key set. `Settings.active_included`/`active_excluded`/`depth` are the one place the `use_*` switches and the archives checkbox are read for searching.
@@ -43,13 +45,13 @@ Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` un
 
 ## Rules
 
-- **Every button is made by `style.action_button()`**, never `QPushButton(...)` directly — a hand-built button wears the desktop theme. Pick a color by role (`PRIMARY_BUTTON_BG`, `SECONDARY_BUTTON_BG`, `NAV_BUTTON_BG`, `selection_button_bg()`), not a hex value.
+- **Every button is made by `style.action_button()`** (or `icon_button()`), never `QPushButton(...)` directly — a hand-built button wears the desktop theme (`tests/test_rules.py` guards it). Pick a color by role (`PRIMARY_BUTTON_BG`, `SECONDARY_BUTTON_BG`, `NAV_BUTTON_BG`, `selection_button_bg()`), not a hex value.
 - **Shared widget looks live in `windowchrome`** (scroll bars, check boxes, markdown help windows). Change them there, and read `../windowchrome/README.md` first.
 - **Do not style the title bar or window frame**, and keep the window title just the app name (search numbers belong in the status bar; `test_the_title_bar_is_only_the_app_name` guards it). Title-bar coloring was removed as too fragile.
 - **Do not restyle the rendered help documents** (link colors, code backgrounds, injected anchors). Modifying the document once stopped Qt's layout part way, rendering sections as blank space. `tests/test_help.py::test_the_whole_document_is_laid_out` is the only guard and must run against the real `docs/` — don't delete it.
 - **`docs/` is runtime content.** Renaming a heading changes its slug and breaks links (including the guide's Contents). Run `tests/test_help.py` before and after editing docs. Don't add non-help markdown under `docs/`; the link test globs it.
-- **The `.deb` copies files one directory at a time.** `build-deb-install.sh` installs `sonarex/`, a copy of `windowchrome/`, and `docs/` (with `docs/img/`) under `/usr/lib/sonarex/`, plus the hicolor icons. A new subpackage, or a new file type under `docs/`, needs its own `install -d`/`install -m 644` line or it silently won't ship — a package that installs cleanly and fails on first use. `docs/` must stay beside the package, because `help.DOCS_DIR` resolves it that way. The Debian package and the Python package are both `sonarex`, but the program and its repository are "Sonar".
-- **No shells.** ugrep, find, `--filter` and the user's Open command all run as argv lists (`shlex` for the Open command). Never `shell=True` — the command comes from a text field.
+- **The `.deb` is built by `packaging/build-deb.sh`** (with the desktop template and icons beside it in `packaging/`). It copies the whole `sonarex/`, `windowchrome/` and `docs/` trees under `/usr/lib/sonarex/`, then smoke-tests the stage before packing: every intra-package import resolves to a staged file, every relative doc link resolves, and the modules import under `python3 -I` (only the Qt-free ones when the system python3 has no PyQt6). A failure there means a package that would have installed cleanly and failed on first use. `docs/` must stay beside the package, because `help.DOCS_DIR` resolves it that way. The Debian package and the Python package are both `sonarex`, but the program and its repository are "Sonar".
+- **No shells.** ugrep, find, `--filter` and the user's Open command all run as argv lists (`shlex` for the Open command). Never `shell=True` — the command comes from a text field (`tests/test_rules.py` guards it).
 - **Config loading must never raise.** Bad or missing config degrades to "no patterns". Saving rewrites the whole file (comments included) via temp file + `os.replace`.
 - **Anything a preview or Open needs is pinned at search start** in the window's one `self._search: SearchSpec`, not re-read from config or the rows. `start_search` reads the config exactly once (`test_one_search_reads_the_config_once`). A member found at depth 3 is unreachable at depth 1; the wrong fuzziness silently highlights nothing. Tests at the wrong depth/fuzziness exist to stop this being "simplified".
 - **Only the widget modules import Qt** (`window`, `preview`, `statusbar`, `runner`, `highlight`, `pdfview`, `settings`, `help`, `style`). `archive`, `config`, `patterns`, `spec`, `query`, `search`, `reader` and `launch` are plain Python; `test_the_non_widget_modules_never_import_qt` guards it.
@@ -88,6 +90,6 @@ Each of these is verified and explained at its site; listed here because they ar
 
 Before writing tests, read `tests/README.md` (fixtures, the autouse `dialogs` fixture that stops `QMessageBox` hanging the run, and what is worth covering per feature). Also run `../windowchrome/tests/` when touching help rendering.
 
-Syntax checks: `python3 -m py_compile sonarex/*.py` and `bash -n start.sh build-deb-install.sh`.
+Static checks: `./lint.sh` — ruff (`ruff.toml`: pyflakes, pycodestyle, bugbear, import order at 100 columns), pyright in basic mode over `sonarex/` (`pyrightconfig.json`; `reportOptionalMemberAccess` is off because PyQt6's stubs mark nearly every getter Optional), and `bash -n` on every script. Keep it clean; there is no formatter — the code's own style stands.
 
 

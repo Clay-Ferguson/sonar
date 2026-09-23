@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
+from typing import Any
 
 # PyYAML is a declared dependency, so this import normally succeeds. It is
 # still guarded because the failure mode matters: running the module without
@@ -528,7 +529,7 @@ def load_settings() -> tuple[Settings, str | None]:
     costs only that key — the dialog still opens on the rest of the file.
     """
     config, error = read_config()
-    values = {
+    values: dict[str, Any] = {
         key.field: _read_key(config, key, getattr(_FALLBACK, key.field))
         for key in KEYS
     }

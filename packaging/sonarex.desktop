@@ -1,4 +1,4 @@
-# Template only. build-deb-install.sh rewrites Exec= and Icon= for where it is
+# Template only. packaging/build-deb.sh rewrites Exec= and Icon= for where it is
 # installing to, so the paths below are never used.
 [Desktop Entry]
 Name=Sonar

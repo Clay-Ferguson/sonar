@@ -255,9 +255,10 @@ def open_hit(hit: Hit, depth: int, copies: TempCopies) -> str | None:
         # read-only copy and that is what gets opened. The copy is a copy:
         # edits to it never reach the archive, which the button's tooltip says
         # and the file's permissions repeat.
-        path, error = copies.extract(hit, depth)
-        if error:
+        copy, error = copies.extract(hit, depth)
+        if copy is None:
             return error
+        path = copy
 
     if os.path.splitext(path)[1].lower() in SYSTEM_OPEN_EXTENSIONS:
         command = SYSTEM_OPEN_COMMAND

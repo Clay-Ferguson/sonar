@@ -16,9 +16,11 @@ from dataclasses import replace
 import pytest
 
 from helpers import current_spec, highlighted, labels, nav, searching, select, status
-from sonarex import search as search_module
 from sonarex import launch
+from sonarex import search as search_module
 from sonarex.archive import Hit
+from sonarex.preview import FOLDER_TIP, FOLDER_TIP_ARCHIVED, OPEN_TIP, OPEN_TIP_ARCHIVED
+from sonarex.reader import read_for_preview
 from sonarex.search import (
     ARCHIVE_MATCH_FORMAT,
     MATCH_FORMAT,
@@ -26,8 +28,6 @@ from sonarex.search import (
     build_argv,
     build_match_argv,
 )
-from sonarex.preview import FOLDER_TIP, FOLDER_TIP_ARCHIVED, OPEN_TIP, OPEN_TIP_ARCHIVED
-from sonarex.reader import read_for_preview
 from sonarex.window import HIT_ROLE, MainWindow
 
 from conftest import (

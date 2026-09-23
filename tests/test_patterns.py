@@ -248,7 +248,7 @@ def test_a_file_pattern_under_a_folder_is_skipped(conf, tmp_path, search, mode):
 def test_pattern_problems(included, excluded, bad):
     problems = patterns.pattern_problems(included, excluded)
     assert len(problems) == len(bad)
-    for pattern, message in zip(bad, problems):
+    for pattern, message in zip(bad, problems, strict=True):
         assert f'"{pattern}"' in message
 
 

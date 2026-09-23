@@ -76,11 +76,11 @@ The folder is the only argument, and it just prefills the **Folder** row — not
 ## Installing
 
 ```bash
-./build-deb-install.sh
+packaging/build-deb.sh
 sudo apt install ./dist/sonarex_0.1.0_all.deb
 ```
 
-`build-deb-install.sh` builds `dist/sonarex_<version>_all.deb`, which any Debian-based distribution can install if its repositories carry `python3-pyqt6`, `ugrep` and Python 3.11 or newer. It installs:
+`packaging/build-deb.sh` builds `dist/sonarex_<version>_all.deb`, which any Debian-based distribution can install if its repositories carry `python3-pyqt6`, `ugrep` and Python 3.11 or newer. It installs:
 
 | Path | What it is |
 |---|---|
@@ -116,6 +116,12 @@ The package is the only way to install Sonar. To run it from this checkout inste
 ```
 
 pytest and pytest-qt are fetched by the script itself, so there is nothing to install first. See [AGENTS.md](AGENTS.md#testing) for the layout.
+
+```bash
+./lint.sh
+```
+
+runs ruff (`ruff.toml`), pyright (`pyrightconfig.json`) and a syntax check of the shell scripts, fetched the same way.
 
 ## License
 

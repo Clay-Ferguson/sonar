@@ -24,9 +24,9 @@ from .style import action_button
 # lucky: `pyproject.toml` sets `package = false` and `start.sh` runs the app
 # out of the tree with `uv run --directory`, so there is no wheel this could
 # be missing from and nothing for `importlib.resources` to improve on. The
-# one thing that *does* have to keep up is `build-deb-install.sh`, which
-# installs `docs/` into /usr/lib/sonarex beside the package for this reason —
-# a new file referenced from here needs a line there too.
+# one thing that *does* have to keep up is `packaging/build-deb.sh`, which
+# installs the whole `docs/` tree into /usr/lib/sonarex beside the package for
+# this reason, and checks before packing that every link in it resolves.
 DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 
 

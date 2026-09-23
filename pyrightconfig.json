@@ -1,0 +1,14 @@
+{
+  // Type checking for the app package; run by ./lint.sh. Kept out of
+  // pyproject.toml, which stays the plain list of runtime dependencies.
+  "include": ["sonarex"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+
+  // PyQt6's stubs declare nearly every getter as returning Optional —
+  // menuBar(), document(), item(row), pageNavigator() — where Qt in fact
+  // always returns an object for the way this app calls them. Left on, this
+  // rule is a wall of false positives around every widget; our own Optionals
+  // are still caught by the argument and return checks.
+  "reportOptionalMemberAccess": false
+}

@@ -174,7 +174,7 @@ class SearchRunner(QObject):
     def _read_stdout(self) -> None:
         if self._process is None:
             return
-        chunk = bytes(self._process.readAllStandardOutput())
+        chunk = self._process.readAllStandardOutput().data()
         # A read can land mid-line, so only whole lines are emitted and the
         # remainder waits for the next chunk. splitlines() is deliberately not
         # used here: it would also split on characters that are legal in a
@@ -219,7 +219,7 @@ class SearchRunner(QObject):
             return
         # Kept as bytes and decoded once at the end, so a message split across
         # two reads is not torn mid-character.
-        self._stderr += bytes(self._process.readAllStandardError())
+        self._stderr += self._process.readAllStandardError().data()
 
     def _on_error(self, error: QProcess.ProcessError) -> None:
         """A failure to run ugrep at all, as opposed to a failure inside it.

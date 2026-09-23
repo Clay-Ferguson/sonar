@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Regenerate the installable PNG icon set from sonar-icon.jpeg.
+"""Regenerate the installable PNG icon set from source.jpeg beside it.
 
 Only needed when the source artwork changes; the PNGs it writes are checked
-in, so build-deb-install.sh never has to convert anything (and never needs
+in, so build-deb.sh never has to convert anything (and never needs
 Pillow).
 
-    uv run --with pillow icons/make-icons.py
+    uv run --with pillow packaging/icons/make-icons.py
 
 The source is a 1024x1024 render of a rounded-square icon sitting on a dark
 backdrop with a drop shadow. CROP is the outer edge of that rounded square and
@@ -23,7 +23,7 @@ SIZES = (16, 22, 24, 32, 48, 64, 128, 256, 512)
 SS = 4  # mask supersampling, for a clean antialiased corner
 
 root = Path(__file__).resolve().parent
-art = Image.open(root.parent / "sonar-icon.jpeg").convert("RGB").crop(CROP)
+art = Image.open(root / "source.jpeg").convert("RGB").crop(CROP)
 side = art.width
 
 mask = Image.new("L", (side * SS, side * SS), 0)
@@ -37,4 +37,4 @@ for size in SIZES:
     out = root / "hicolor" / f"{size}x{size}" / "apps" / "sonarex.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     art.resize((size, size), Image.LANCZOS).save(out, optimize=True)
-    print(out.relative_to(root.parent))
+    print(out.relative_to(root.parents[1]))
