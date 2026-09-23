@@ -23,7 +23,7 @@ from sonarex.archive import (
     member_name,
     parse_result_line,
 )
-from sonarex.viewer import MAX_PREVIEW_BYTES
+from sonarex.reader import MAX_PREVIEW_BYTES
 
 from conftest import MEMBERS, TRUNCATED_SURVIVOR, needs_zip
 

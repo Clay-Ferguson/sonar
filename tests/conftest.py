@@ -29,8 +29,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtWidgets import QMessageBox  # noqa: E402
 
-from sonarex import config, viewer  # noqa: E402
-from sonarex.search import MODE_CONTENT  # noqa: E402
+from sonarex import config, launch  # noqa: E402
+from sonarex.launch import TempCopies  # noqa: E402
+from sonarex.query import MODE_CONTENT  # noqa: E402
 from sonarex.window import MainWindow  # noqa: E402
 
 # The word every fixture file contains and every search looks for.
@@ -249,7 +250,7 @@ def spawned(monkeypatch):
     would take the preview's own extraction down with it.
     """
     calls = []
-    real = viewer.subprocess.Popen
+    real = launch.subprocess.Popen
 
     def spy(argv, **kwargs):
         if argv[:1] == [NOOP_OPENER]:
@@ -257,8 +258,8 @@ def spawned(monkeypatch):
             return None
         return real(argv, **kwargs)
 
-    monkeypatch.setattr(viewer, "SYSTEM_OPEN_COMMAND", NOOP_OPENER)
-    monkeypatch.setattr(viewer.subprocess, "Popen", spy)
+    monkeypatch.setattr(launch, "SYSTEM_OPEN_COMMAND", NOOP_OPENER)
+    monkeypatch.setattr(launch.subprocess, "Popen", spy)
     return calls
 
 
@@ -423,16 +424,17 @@ def dialogs(monkeypatch):
     return shown
 
 
-@pytest.fixture(autouse=True)
-def _clean_temp_copies():
-    """Remove any extracted copy an Open left behind.
+@pytest.fixture
+def copies():
+    """A `TempCopies` for a test that calls `launch.open_hit` without a window.
 
-    `viewer` keeps the session's temp directory in a module global, so without
-    this a test that opens an archive member leaks it into the next one — and
-    the count-the-copies assertions would see the wrong number.
+    A window owns its own and empties it when pytest-qt closes it; this is the
+    same for a test with no window, emptied at teardown so no extracted copy
+    outlives the test that made it.
     """
-    yield
-    viewer.cleanup_temp_files()
+    made = TempCopies()
+    yield made
+    made.cleanup()
 
 
 @pytest.fixture

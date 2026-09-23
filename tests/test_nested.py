@@ -13,9 +13,9 @@ import os
 import pytest
 
 from helpers import highlighted, labels, nav, select
-from sonarex import viewer
+from sonarex import launch
 from sonarex.archive import Hit
-from sonarex.viewer import read_for_preview
+from sonarex.reader import read_for_preview
 from sonarex.window import HIT_ROLE
 
 # What ugrep calls the file at the bottom, and what the window shows instead.
@@ -76,10 +76,10 @@ def test_open_extracts_from_the_bottom_of_the_chain(conf, nested_tree, search):
     window = search(nested_tree, "needle")
     item = select(window, DEEP_ROW)
 
-    assert viewer.open_in_editor(item.data(HIT_ROLE), window._search.depth) is None
+    assert launch.open_hit(item.data(HIT_ROLE), window._search.depth, window._copies) is None
     copies = [
         os.path.join(root, name)
-        for root, _dirs, names in os.walk(viewer._temp_root)
+        for root, _dirs, names in os.walk(window._copies.root)
         for name in names
     ]
     assert len(copies) == 1

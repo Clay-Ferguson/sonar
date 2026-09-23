@@ -8,7 +8,7 @@ Run with `./tests/run.sh` (see `AGENTS.md`). These are integration tests: they r
 
 `conftest.py` builds every fixture archive from the standard library into pytest's `tmp_path`, so nothing is checked in. `helpers.py` reads the window back — `labels()`, `highlighted()`, `select()`, `nav()`, `status()`, `searching()`. The `spawned` fixture and `NOOP_OPENER` record what Open or the folder button hands to the system opener. `search(folder, query, mode)` sets the mode dropdown.
 
-Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`, `test_spec` (no Qt, bar one window test), `test_preview` (`PreviewPanel` and `SearchStatusBar` on their own).
+Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`, `test_spec` (no Qt, bar one window test), `test_preview` (`PreviewPanel` and `SearchStatusBar` on their own), `test_launch` (`TempCopies`, and the guard that the non-widget modules never import Qt).
 
 ## Fixtures worth knowing
 

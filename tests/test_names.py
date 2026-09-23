@@ -13,8 +13,9 @@ import os
 from helpers import current_spec, highlighted, labels, nav, select, status
 from sonarex.archive import Hit
 from sonarex.patterns import build_prune_args
-from sonarex.search import MODE_CONTENT, MODE_NAMES, build_name_argv, name_terms
-from sonarex.viewer import FOLDER_NOTICE
+from sonarex.query import MODE_CONTENT, MODE_NAMES, name_terms
+from sonarex.search import build_name_argv
+from sonarex.reader import FOLDER_NOTICE
 from sonarex.preview import OPEN_TIP_FOLDER
 from sonarex.window import HIT_ROLE, STATUS_FAILED, MainWindow
 

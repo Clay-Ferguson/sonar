@@ -17,7 +17,7 @@ import pytest
 
 from helpers import current_spec, highlighted, labels, nav, searching, select, status
 from sonarex import search as search_module
-from sonarex import viewer
+from sonarex import launch
 from sonarex.archive import Hit
 from sonarex.search import (
     ARCHIVE_MATCH_FORMAT,
@@ -27,7 +27,7 @@ from sonarex.search import (
     build_match_argv,
 )
 from sonarex.preview import FOLDER_TIP, FOLDER_TIP_ARCHIVED, OPEN_TIP, OPEN_TIP_ARCHIVED
-from sonarex.viewer import read_for_preview
+from sonarex.reader import read_for_preview
 from sonarex.window import HIT_ROLE, MainWindow
 
 from conftest import (
@@ -362,11 +362,11 @@ def test_open_extracts_a_read_only_copy(conf, tree, search):
     window = search(tree, "needle")
     item = select(window, "docs.zip → doc/one.txt")
 
-    assert viewer.open_in_editor(item.data(HIT_ROLE), window._search.depth) is None
+    assert launch.open_hit(item.data(HIT_ROLE), window._search.depth, window._copies) is None
 
     copies = [
         os.path.join(root, name)
-        for root, _dirs, names in os.walk(viewer._temp_root)
+        for root, _dirs, names in os.walk(window._copies.root)
         for name in names
     ]
     assert len(copies) == 1
@@ -381,16 +381,16 @@ def test_closing_removes_the_copies(conf, tree, search):
     conf(archives=True)
     window = search(tree, "needle")
     item = select(window, "docs.zip → doc/one.txt")
-    viewer.open_in_editor(item.data(HIT_ROLE), window._search.depth)
-    assert viewer._temp_root is not None
+    launch.open_hit(item.data(HIT_ROLE), window._search.depth, window._copies)
+    assert window._copies.root is not None
 
     window.close()
-    assert viewer._temp_root is None
+    assert window._copies.root is None
 
 
 @needs_zip
-def test_open_declines_an_unreadable_member(tree):
-    error = viewer.open_in_editor(Hit(f"{tree}/locked.zip", "sec.txt"), 1)
+def test_open_declines_an_unreadable_member(tree, copies):
+    error = launch.open_hit(Hit(f"{tree}/locked.zip", "sec.txt"), 1, copies)
     assert error.startswith("Cannot read 'sec.txt' out of the archive")
 
 
@@ -423,7 +423,7 @@ def test_the_folder_button_opens_an_archives_own_folder(conf, tree, search, spaw
     """The folder for a member is the one holding the archive.
 
     Not the temp directory an extracted copy goes to — and nothing is
-    extracted at all, which is what the untouched `_temp_root` says.
+    extracted at all, which is what the untouched `window._copies.root` says.
     """
     conf(archives=True)
     window = search(tree, "needle")
@@ -432,7 +432,7 @@ def test_the_folder_button_opens_an_archives_own_folder(conf, tree, search, spaw
     window.panel.folder_button.click()
 
     assert spawned == [[NOOP_OPENER, str(tree)]]
-    assert viewer._temp_root is None
+    assert window._copies.root is None
 
 
 def test_the_folder_button_follows_the_selection(conf, tree, search):
@@ -462,7 +462,7 @@ def test_the_folder_is_reported_when_it_is_gone(tmp_path, spawned):
     hit = Hit(str(folder / "file.txt"))
     folder.rmdir()
 
-    error = viewer.open_folder(hit)
+    error = launch.open_folder(hit)
 
     assert error.startswith("Cannot open — the folder no longer exists")
     assert spawned == []
@@ -509,7 +509,7 @@ def test_a_pdf_inside_an_archive_is_found_but_not_rendered(conf, pdf_tree, searc
 
 
 @needs_pdftotext
-def test_open_declines_a_pdf_member(pdf_tree):
+def test_open_declines_a_pdf_member(pdf_tree, copies):
     """Declined by extension, not by sniffing for a NUL byte.
 
     This fixture's PDF has an uncompressed text stream and contains no NUL at
@@ -517,11 +517,11 @@ def test_open_declines_a_pdf_member(pdf_tree):
     mangled copy. The preview never had this problem because it checks
     `is_pdf` before it extracts anything.
     """
-    error = viewer.open_in_editor(Hit(f"{pdf_tree}/withpdf.zip", "doc.pdf"), 1)
+    error = launch.open_hit(Hit(f"{pdf_tree}/withpdf.zip", "doc.pdf"), 1, copies)
     assert error.startswith("'doc.pdf' is not a text file")
 
 
-def test_open_declines_a_binary_member(tmp_path):
+def test_open_declines_a_binary_member(tmp_path, copies):
     """And the NUL sniff still catches everything that is not a PDF."""
     import zipfile
 
@@ -529,7 +529,7 @@ def test_open_declines_a_binary_member(tmp_path):
     with zipfile.ZipFile(archive, "w") as handle:
         handle.writestr("blob.dat", b"needle\x00\x01\x02 binary payload")
 
-    error = viewer.open_in_editor(Hit(str(archive), "blob.dat"), 1)
+    error = launch.open_hit(Hit(str(archive), "blob.dat"), 1, copies)
     assert error.startswith("'blob.dat' is not a text file")
 
 

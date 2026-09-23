@@ -15,14 +15,9 @@ import os
 import pytest
 
 from helpers import labels, searching, select, status
-from sonarex import search as search_module
-from sonarex.search import (
-    MODE_CONTENT,
-    MODE_NAMES,
-    STATS_FILES,
-    SearchRunner,
-    name_search_error,
-)
+from sonarex import runner as runner_module
+from sonarex.query import MODE_CONTENT, MODE_NAMES
+from sonarex.runner import STATS_FILES, SearchRunner, name_search_error
 from sonarex.spec import SearchSpec
 from sonarex.style import STATUS_BAR_MARGINS
 from sonarex.statusbar import SPINNER_FRAMES, STATUS_READY
@@ -292,7 +287,8 @@ def test_a_missing_program_is_reported(
     conf, tree, qtbot, monkeypatch, dialogs, mode, builder, program
 ):
     conf(archives=False)
-    monkeypatch.setattr(search_module, builder, lambda *_: ["/nonexistent/program"])
+    # Patched where the runner looks it up: it imports the builders by name.
+    monkeypatch.setattr(runner_module, builder, lambda *_: ["/nonexistent/program"])
     window = MainWindow(tree)
     qtbot.addWidget(window)
     window.query_edit.setText("needle")

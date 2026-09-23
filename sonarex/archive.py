@@ -5,8 +5,8 @@ and the rest, and a hit stops being a path — it becomes a path *plus* a name
 inside it. `Hit` is that pair, and it is what the rest of the app carries
 around instead of a string.
 
-The whole of the archive knowledge lives here so `search`, `viewer` and
-`window` can share it without importing each other, the same reason `style`
+The whole of the archive knowledge lives here so `search`, `reader`,
+`launch` and `window` can share it without importing each other, the same reason `style`
 exists. Like `style`, it imports nothing from the package.
 
 Extraction goes back through ugrep rather than through `unzip`/`tar`/`7z` or

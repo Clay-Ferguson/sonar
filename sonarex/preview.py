@@ -34,7 +34,9 @@ from windowchrome import apply_checkboxes, apply_scrollbars
 from .archive import Hit
 from .highlight import MatchHighlighter
 from .pdfview import PDF_AVAILABLE, PdfPane
-from .search import literal_query_term, match_spans
+from .query import literal_query_term
+from .reader import is_pdf, read_for_preview
+from .search import match_spans
 from .spec import SearchSpec
 from .style import (
     CONTROL_BAR_PADDING,
@@ -47,7 +49,6 @@ from .style import (
     mono_font,
     selection_button_bg,
 )
-from .viewer import is_pdf, read_for_preview
 
 # The Open button's tooltip, which changes with the selection: a hit inside an
 # archive opens a copy, and that is worth saying before the click rather than

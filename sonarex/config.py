@@ -536,7 +536,7 @@ def load_settings() -> tuple[Settings, str | None]:
 
 
 def open_command() -> str:
-    """The Open button's command line — the one call the viewer needs.
+    """The Open button's command line — the one call `launch` needs.
 
     Read per click rather than cached, for the same reason the settings are
     read per search: a change saved in the dialog has to apply to the next use

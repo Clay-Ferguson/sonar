@@ -27,11 +27,14 @@ Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` un
 - `patterns.py` — what the config's glob patterns mean to ugrep (`build_glob_args`) and find (`build_prune_args`), `pattern_problems()`, and the dialog's one-pattern-per-line text form. Pure; imports nothing from the package.
 - `spec.py` — `SearchSpec`, the frozen record of one search (query, root, mode, depth, fuzzy, translated globs/prune clause), built by `SearchSpec.from_settings()` from a single `load_settings()`; `search_problems()` checks the lists a search will apply. Pure: no disk, no Qt.
 - `archive.py` — `Hit(path, member)` (member empty for ordinary files), result-line parsing, member globs, extraction via ugrep. Imports nothing from the package.
-- `search.py` — `SearchRunner` (`QProcess` streaming hits), argv builders for content search (`build_argv`), per-file match spans (`build_match_argv`/`match_spans`, synchronous), and name search (`build_name_argv`, `name_terms`). Every builder, the runner and `match_spans` take a `SearchSpec` and read nothing else. `literal_query_term()` reduces a query to one string for PDF search.
+- `query.py` — `MODE_CONTENT`/`MODE_NAMES`, and the two places the app reads a query itself: `name_terms()` (find `-iname` patterns) and `literal_query_term()` (one string for PDF search). Pure.
+- `search.py` — the argv builders, each taking a `SearchSpec`: content search (`build_argv`), name search (`build_name_argv`), per-file match spans (`build_match_argv`, run synchronously by `match_spans`). Also ugrep's exit codes and `ugrep_available()`. No Qt.
+- `runner.py` — `SearchRunner` (`QProcess` streaming hits from either argv), the `--stats` split, and `search_error()`/`name_search_error()`, which tell a real failure from per-file notes.
 - `window.py` — `MainWindow`: menus, the query and folder rows, the results list, running a search and reading its results back, the end-of-search mtime sort, and what Open / the folder button do with the selected row.
 - `preview.py` — `PreviewPanel`, the right-hand pane: text pane + `MatchHighlighter`, `PdfPane`, the control bar (Open, folder, Prev/Next, counter, Word Wrap) and the walk through the current file's matches. The window only calls `show_hit(hit, search)`, `clear()` and `shutdown()`.
 - `statusbar.py` — `SearchStatusBar`: message, text spinner and the green searching state (`set_status(message, busy)`).
-- `viewer.py` — `read_for_preview()` (always returns a string, never raises), `open_in_editor()`, `open_folder()`, temp copies of archive members.
+- `reader.py` — `read_for_preview()` (always returns a string, never raises), `is_pdf()`, the preview size cap.
+- `launch.py` — `open_hit()` (editor, or `xdg-open` for PDFs and folders), `open_folder()`, the child environment, and `TempCopies`, the read-only copies Open extracts from archives. The window owns one `TempCopies`.
 - `highlight.py` — `MatchHighlighter`, paints the spans it is given; knows nothing about the query.
 - `pdfview.py` — `PdfPane` (`QPdfView`); `PDF_AVAILABLE` false falls back to the binary notice.
 - `settings.py` — Options ▸ Settings dialog. Adding a setting = one `_add_*()` call + a field on `Settings` + a row in `config.KEYS` (an import-time assert catches a field with no row).
@@ -49,8 +52,9 @@ Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` un
 - **No shells.** ugrep, find, `--filter` and the user's Open command all run as argv lists (`shlex` for the Open command). Never `shell=True` — the command comes from a text field.
 - **Config loading must never raise.** Bad or missing config degrades to "no patterns". Saving rewrites the whole file (comments included) via temp file + `os.replace`.
 - **Anything a preview or Open needs is pinned at search start** in the window's one `self._search: SearchSpec`, not re-read from config or the rows. `start_search` reads the config exactly once (`test_one_search_reads_the_config_once`). A member found at depth 3 is unreachable at depth 1; the wrong fuzziness silently highlights nothing. Tests at the wrong depth/fuzziness exist to stop this being "simplified".
+- **Only the widget modules import Qt** (`window`, `preview`, `statusbar`, `runner`, `highlight`, `pdfview`, `settings`, `help`, `style`). `archive`, `config`, `patterns`, `spec`, `query`, `search`, `reader` and `launch` are plain Python; `test_the_non_widget_modules_never_import_qt` guards it.
 - **Empty the preview only through `PreviewPanel.clear()`** (selection → None, `start_search`, a selected row dropped by the sort) — it is what resets Prev/Next along with the text.
-- **`closeEvent` must call `panel.shutdown()`** (it clears `PdfPane`; else SIGSEGV on exit), `cleanup_temp_files()` and `close_markdown_windows()`.
+- **`closeEvent` must call `panel.shutdown()`** (it clears `PdfPane`; else SIGSEGV on exit), `self._copies.cleanup()` and `close_markdown_windows()`.
 - Do not commit to git, or offer to. Only the human developer commits.
 
 ## ugrep / find behavior that shapes the code
@@ -80,7 +84,7 @@ Each of these is verified and explained at its site; listed here because they ar
 ./tests/run.sh -k archive -v         # by name
 ```
 
-`run.sh` sets `QT_QPA_PLATFORM=offscreen` and pulls in pytest/pytest-qt with `uv run --with` — keep test tooling out of `pyproject.toml`. Tests are integration tests against real ugrep and real archives, deliberately; run them before any change to `search.py`, `archive.py` or `viewer.py`. A green run means *this* ugrep on *this* filesystem — pin varying behavior (mtimes, exit statuses) rather than observing it.
+`run.sh` sets `QT_QPA_PLATFORM=offscreen` and pulls in pytest/pytest-qt with `uv run --with` — keep test tooling out of `pyproject.toml`. Tests are integration tests against real ugrep and real archives, deliberately; run them before any change to `search.py`, `runner.py`, `archive.py`, `reader.py` or `launch.py`. A green run means *this* ugrep on *this* filesystem — pin varying behavior (mtimes, exit statuses) rather than observing it.
 
 Before writing tests, read `tests/README.md` (fixtures, the autouse `dialogs` fixture that stops `QMessageBox` hanging the run, and what is worth covering per feature). Also run `../windowchrome/tests/` when touching help rendering.
 

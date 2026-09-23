@@ -20,7 +20,7 @@ import pytest
 
 from helpers import highlighted, labels, select
 from sonarex import config, patterns
-from sonarex.search import MODE_CONTENT, MODE_NAMES
+from sonarex.query import MODE_CONTENT, MODE_NAMES
 from sonarex.spec import search_problems
 from sonarex.window import MainWindow
 

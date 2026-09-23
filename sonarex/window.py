@@ -31,17 +31,11 @@ from . import APP_NAME
 from .archive import Hit, member_levels, parse_result_line
 from .config import load_settings
 from .help import show_query_syntax, show_user_guide
+from .launch import TempCopies, open_folder, open_hit
 from .preview import PreviewPanel
-from .search import (
-    EXIT_MATCHED,
-    EXIT_NO_MATCH,
-    MODE_CONTENT,
-    MODE_NAMES,
-    SearchRunner,
-    name_search_error,
-    name_terms,
-    search_error,
-)
+from .query import MODE_CONTENT, MODE_NAMES, name_terms
+from .runner import SearchRunner, name_search_error, search_error
+from .search import EXIT_MATCHED, EXIT_NO_MATCH
 from .settings import show_settings
 from .spec import SearchSpec, search_problems
 from .statusbar import SearchStatusBar
@@ -54,11 +48,6 @@ from .style import (
     mono_font,
     results_list_style,
     splitter_style,
-)
-from .viewer import (
-    cleanup_temp_files,
-    open_folder,
-    open_in_editor,
 )
 
 # The `Hit` a row stands for: an absolute path, plus a name inside it when the
@@ -118,6 +107,9 @@ class MainWindow(QMainWindow):
         # never from the rows or the config, for as long as its results are on
         # screen. See `spec.py` for why. Blank until the first search.
         self._search = SearchSpec("", "")
+        # The read-only copies Open extracts from archives this session,
+        # removed when the window closes.
+        self._copies = TempCopies()
         self._build_menus()
 
         # A QMainWindow so the menu bar is the window's own — Qt places it
@@ -566,13 +558,13 @@ class MainWindow(QMainWindow):
 
         The `Hit` comes from HIT_ROLE, not the row's text, which is only the
         part below the search root. One naming a file inside an archive is
-        extracted to a read-only copy first; `viewer` does that, since it is
+        extracted to a read-only copy first; `launch` does that, since it is
         the same decision as which command to run.
         """
         item = self.results.currentItem()
         if item is None:
             return
-        error = open_in_editor(item.data(HIT_ROLE), self._search.depth)
+        error = open_hit(item.data(HIT_ROLE), self._search.depth, self._copies)
         if error:
             self._report_problem(error)
 
@@ -581,7 +573,7 @@ class MainWindow(QMainWindow):
 
         No depth argument, unlike Open: nothing is extracted, because the
         folder wanted for a hit inside an archive is the one holding the
-        archive itself — see `viewer.containing_folder`.
+        archive itself — see `launch.containing_folder`.
         """
         item = self.results.currentItem()
         if item is None:
@@ -618,7 +610,7 @@ class MainWindow(QMainWindow):
         # And without this, every archive member opened this session is still
         # sitting in /tmp. An editor holding one open keeps its own buffer, so
         # removing it here costs the user nothing.
-        cleanup_temp_files()
+        self._copies.cleanup()
         # And the help windows, which are modeless and therefore still on
         # screen. They do not hold the application open — a parented dialog
         # has a transient parent, so it is not the last window as far as

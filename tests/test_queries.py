@@ -13,7 +13,9 @@ import pytest
 
 from helpers import highlighted, labels, select
 from sonarex.archive import Hit
-from sonarex.search import literal_query_term, match_spans, search_error
+from sonarex.query import literal_query_term
+from sonarex.runner import search_error
+from sonarex.search import match_spans
 from sonarex.spec import SearchSpec
 from sonarex.window import MainWindow
 
