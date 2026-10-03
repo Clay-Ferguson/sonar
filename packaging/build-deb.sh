@@ -140,16 +140,19 @@ chmod 644 "$STAGE/usr/share/applications/sonarex.desktop"
 # -- smoke test ----------------------------------------------------------------
 
 # A file the copy missed installs cleanly and fails on first launch, so the
-# staged tree is checked before it is packed, with the launcher's own flags
-# (-I) plus -B so nothing is written into the stage. Three checks, the first
-# two needing nothing but Python, so they run on a build machine with no Qt:
+# staged tree is checked before it is packed, with the launcher's own
+# interpreter (/usr/bin/python3, not whichever python3 is first on PATH, which
+# in an activated venv or a pyenv/conda/uv shell has no python3-yaml) and its
+# flags (-I) plus -B so nothing is written into the stage. Three checks, the
+# first two needing nothing but Python, so they run on a build machine with no
+# Qt:
 #
 #   - every import inside the staged packages names a file that was staged;
 #   - every relative link and image in the staged docs resolves;
-#   - the modules import: all of them where the system python3 has PyQt6, and
+#   - the modules import: all of them where /usr/bin/python3 has PyQt6, and
 #     otherwise the Qt-free ones, which is still every module but the widgets.
-command -v python3 >/dev/null 2>&1 || die "python3 not found; it is needed to check the staged files."
-python3 -I -B - "$LIB" <<'PY' || die "the staged files failed the smoke test (above); nothing was packaged."
+[ -x /usr/bin/python3 ] || die "/usr/bin/python3 not found; it is needed to check the staged files (apt install python3)."
+/usr/bin/python3 -I -B - "$LIB" <<'PY' || die "the staged files failed the smoke test (above); nothing was packaged."
 import ast
 import importlib
 import pathlib
