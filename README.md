@@ -77,8 +77,12 @@ The folder is the only argument, and it just prefills the **Folder** row — not
 
 ```bash
 packaging/build-deb.sh
-sudo apt install ./dist/sonarex_0.1.0_all.deb
+sudo apt install --reinstall ./dist/sonarex_0.1.0_all.deb
 ```
+
+Or run `./build.sh`, which does both: it runs `packaging/build-deb.sh`, then asks whether to install the result (default no).
+
+`--reinstall` matters when installing over an earlier build: a rebuild keeps the version from `pyproject.toml`, and apt skips a `.deb` whose version is already installed ("sonarex is already the newest version") without looking at its contents.
 
 `packaging/build-deb.sh` builds `dist/sonarex_<version>_all.deb`, which any Debian-based distribution can install if its repositories carry `python3-pyqt6`, `ugrep` and Python 3.11 or newer. It installs:
 

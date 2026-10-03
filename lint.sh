@@ -12,5 +12,5 @@ cd "$(dirname "$0")"
 
 uvx ruff check .
 uv run --with pyright pyright
-bash -n start.sh lint.sh tests/run.sh packaging/build-deb.sh
+bash -n start.sh lint.sh build.sh tests/run.sh packaging/build-deb.sh
 echo "lint: all clean"

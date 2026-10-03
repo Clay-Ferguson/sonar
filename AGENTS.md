@@ -22,7 +22,7 @@ Installed from the `.deb` it is `sonarex` instead, running `/usr/lib/sonarex` un
 
 ## Layout
 
-Top level: `sonarex/` (the app), `docs/` (runtime help content, shipped), `tests/`, `packaging/` (`build-deb.sh`, the `.desktop` template, and `icons/` with their source art and `make-icons.py`), `start.sh` and `lint.sh`. Tool settings live in `ruff.toml`, `pyrightconfig.json` and `pytest.ini`, so `pyproject.toml` stays the runtime dependency list. The package:
+Top level: `sonarex/` (the app), `docs/` (runtime help content, shipped), `tests/`, `packaging/` (`build-deb.sh`, the `.desktop` template, and `icons/` with their source art and `make-icons.py`), `start.sh`, `lint.sh` and `build.sh` (runs `packaging/build-deb.sh`, then offers to install the result). Tool settings live in `ruff.toml`, `pyrightconfig.json` and `pytest.ini`, so `pyproject.toml` stays the runtime dependency list. The package:
 
 - `__main__.py` — entry point: argparse, `QApplication`, ugrep check, folder resolution.
 - `config.py` — YAML config (`Settings`, a frozen dataclass; `load_settings`/`save_settings`), read **at the moment of use** (once per search, and `open_command()` per Open click), so saved changes need no restart. Every key is one row of `KEYS` (field, section, name, kind, comment), which drives loading, rendering and the known-key set. `Settings.active_included`/`active_excluded`/`depth` are the one place the `use_*` switches and the archives checkbox are read for searching.

@@ -3,7 +3,8 @@
 #
 # Usage:  packaging/build-deb.sh          (from anywhere)
 # Output: dist/sonarex_<version>_all.deb   (dist/ at the top of the checkout)
-# Then:   sudo apt install ./dist/sonarex_<version>_all.deb
+# Then:   sudo apt install --reinstall ./dist/sonarex_<version>_all.deb
+#         (--reinstall, or apt skips a rebuild whose version is already installed)
 #
 # Built by hand with dpkg-deb rather than with debhelper: Sonar is pure Python
 # with no build step, so all the package has to do is put files in the right
@@ -291,7 +292,7 @@ rm -rf "$STAGE"
 
 echo "Built $DEB"
 echo ""
-echo "Install:  sudo apt install $DEB"
+echo "Install:  sudo apt install --reinstall $DEB"
 echo "Remove:   sudo apt remove $PACKAGE"
 # A leftover from the old install.sh, which this package replaced. Its entry in
 # ~/.local/share/applications takes precedence over the package's, so it would
