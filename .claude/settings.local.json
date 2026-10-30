@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile search_static.py search_ugrep.py sonarex_action.py)",
+      "Bash(bash -n search_static.sh)",
+      "Bash(bash -n search_results_dialog.sh)",
+      "Bash(bash -n setup.sh)",
+      "Read(//usr/bin/**)",
+      "Read(//tmp/**)",
+      "Bash(command -v ug ugrep)",
+      "Bash(ugrep --version)",
+      "Bash(ugrep --help)",
+      "Bash(zenity --help-all)",
+      "Bash(zenity --help-list)",
+      "Bash(zenity --help-general)",
+      "Bash(python3 *)",
+      "Bash(ps -eo pid,ppid,sid,comm,args --no-headers)",
+      "Bash(ps -eo pid,ppid,stat,etime,time,args --no-headers)",
+      "Bash(ps -eo args --no-headers)",
+      "Bash(pkill -f \"zenity --list\")",
+      "Bash(rm -f /tmp/sonarex-search-*.txt)"
+    ]
+  }
+}
