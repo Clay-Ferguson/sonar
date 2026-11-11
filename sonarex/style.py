@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QStyle,
 )
+from windowchrome import DIVIDER_BORDER
 
 from . import UI_POINT_SIZE
 
@@ -113,14 +114,6 @@ SPLITTER_CONTRAST = 150
 # it and the other apps sharing windowchrome. windowchrome's default derives
 # the handle from the pane color instead, which suits no other toolkit.
 SCROLLBAR_HANDLE = "#777777"
-
-# Menu padding, in pixels: the space around the label of a menu-bar title and
-# of an item inside a menu. Both are bigger targets than the desktop's default,
-# which is sized for a mouse that never misses. The menus carry so few items
-# that the extra height costs nothing.
-MENU_BAR_ITEM_PADDING = "8px 16px"
-MENU_ITEM_PADDING = "10px 32px"
-MENU_BORDER = "1px solid #9a9a9a"
 
 # The space around a file name in the results list, in pixels. Qt packs list
 # rows at the bare height of their text, which runs a long list of paths
@@ -331,7 +324,7 @@ def splitter_style() -> str:
 def results_list_style() -> str:
     """Qt stylesheet giving the results list room around each file name.
 
-    Padding only, for the same reason `menu_style()` is: the list keeps the
+    Padding only: the list keeps the
     desktop's own colors and its font comes from `mono_font()`. And with the
     same catch — styling `::item` at all takes those rows out of the native
     style's painting, selection included, so the selected row's colors have to
@@ -343,49 +336,6 @@ def results_list_style() -> str:
             padding: {RESULT_ITEM_PADDING};
         }}
         QListWidget::item:selected {{
-            background: palette(highlight);
-            color: palette(highlighted-text);
-        }}
-    """
-
-
-def menu_style() -> str:
-    """Qt stylesheet for the window's menu bar and its drop-downs.
-
-    Padding only — the font is left alone, so the menus grow as targets
-    without the rest of the window changing size around them.
-
-    Styling `::item` at all opts those items out of the native style's
-    rendering, hover included, so the selected state has to be restated here
-    or a menu would highlight nothing under the pointer. It is written in
-    `palette()` terms rather than pinned colors so it still follows the
-    desktop theme, the way the unstyled menu did.
-
-    The drop-downs also carry `MENU_BORDER`: the pop-up takes the same
-    surface color as the window behind it, so without an edge a menu has no
-    visible boundary at all. The gray is pinned rather than derived because
-    it has to read against both a light and a dark surface, and giving
-    `QMenu` a border means giving it an explicit background too: a styled
-    frame stops the native style painting the pop-up, so its background is
-    the window surface, written out here.
-    """
-    body = QApplication.palette().color(QPalette.ColorRole.Window).name()
-    return f"""
-        QMenuBar::item {{
-            padding: {MENU_BAR_ITEM_PADDING};
-            background: transparent;
-        }}
-        QMenuBar::item:selected, QMenuBar::item:pressed {{
-            background: palette(highlight);
-            color: palette(highlighted-text);
-        }}
-        QMenu {{
-            padding: 6px;
-            background: {body};
-            border: {MENU_BORDER};
-        }}
-        QMenu::item {{ padding: {MENU_ITEM_PADDING}; }}
-        QMenu::item:selected {{
             background: palette(highlight);
             color: palette(highlighted-text);
         }}
@@ -411,13 +361,14 @@ STATUS_BUSY_FG = "#f0f2ef"
 # checked.
 STATUS_BAR_MARGINS = (10, 6, 10, 6)
 
-# The line separating the bar from the window above it. Pinned, and the same
-# gray as MENU_BORDER, for the same reason that one is: it has to read against
+# The line separating the bar from the window above it. Pinned, and
+# windowchrome's divider gray, the one its menus are drawn with (README §14
+# there), for the same reason that one is: it has to read against
 # a light desktop surface and a dark one, and here also against the busy green,
 # so it can be derived from neither the palette nor the bar's own background.
 # Top only — the other three edges are the window's frame, which the decoration
 # already draws.
-STATUS_BAR_BORDER = "1px solid #9a9a9a"
+STATUS_BAR_BORDER = DIVIDER_BORDER
 
 
 def status_style(busy: bool) -> str:

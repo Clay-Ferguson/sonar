@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from windowchrome import apply_frame, apply_scrollbars, close_markdown_windows
+from windowchrome import apply_frame, apply_menus, apply_scrollbars, close_markdown_windows
 
 from . import APP_NAME, messages
 from .archive import Hit, member_levels, parse_result_line
@@ -44,7 +44,6 @@ from .style import (
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
     action_button,
-    menu_style,
     mono_font,
     results_list_style,
     splitter_style,
@@ -238,9 +237,10 @@ class MainWindow(QMainWindow):
         the words do not, and two items of plain text read as one list.
         """
         bar = self.menuBar()
-        # Padding only, so the titles and items are comfortable targets
-        # without the menu font growing away from the rest of the window.
-        bar.setStyleSheet(menu_style())
+        # windowchrome's menu look (README §14 there): gray edges and roomy
+        # items, in the palette's highlight. No point size, so the menu font
+        # stays the window's own rather than growing away from it.
+        apply_menus(bar)
 
         file_menu = bar.addMenu("&File")
         exit_action = QAction("E&xit", self)
