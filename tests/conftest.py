@@ -411,16 +411,19 @@ def dialogs(monkeypatch):
     path under test hangs the whole run rather than failing it. Anything that
     would have been shown lands in this list, which is also the only way to
     assert that a problem *was* reported.
+
+    Caught at `exec()`, which is where `messages.py` runs every box it frames.
+    The static `QMessageBox.warning()` and friends exec inside C++ where this
+    cannot reach, which is one more reason the package never calls them
+    (`test_no_static_message_box` guards it).
     """
     shown = []
 
-    def capture(_parent, title, message, *args, **kwargs):
-        shown.append((title, message))
-        return QMessageBox.StandardButton.Ok
+    def capture(box, *args, **kwargs):
+        shown.append((box.windowTitle(), box.text()))
+        return QMessageBox.StandardButton.Ok.value
 
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(capture))
-    monkeypatch.setattr(QMessageBox, "critical", staticmethod(capture))
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(capture))
+    monkeypatch.setattr(QMessageBox, "exec", capture)
     return shown
 
 

@@ -33,6 +33,8 @@ except ImportError:  # pragma: no cover - depends on how PyQt6 was installed
 
 from windowchrome import apply_scrollbars
 
+from .style import SCROLLBAR_HANDLE
+
 # The gap between pages in the continuous scroll, in pixels. Qt's default is
 # 3, which reads as a seam rather than a page break.
 PAGE_SPACING = 12
@@ -76,7 +78,7 @@ if PDF_AVAILABLE:
 
             # A QAbstractScrollArea like the list and the text preview, so it
             # takes the same wider bars.
-            apply_scrollbars(self)
+            apply_scrollbars(self, handle=SCROLLBAR_HANDLE)
 
         # -- what the window calls ------------------------------------------
 

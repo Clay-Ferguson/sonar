@@ -105,7 +105,7 @@ The folder is the **only** argument, and all it does is prefill the **Folder** r
 - **Preview pane** (right) — the selected file, read-only.
 - **Control bar** (under the preview) — **Open**, the folder button, **Prev**, **Next**, the match counter, and the **Word Wrap** checkbox.
 - **Status bar** (along the bottom) — where Sonar reports on the search. It turns **green** and shows a small turning `|/-\` indicator while a search is running, so you can tell it is working even before it has found anything. When the search finishes it goes back to the window color and says how many files matched, how many were searched, and where. It is also where the **Options** menu items describe themselves as you hover over them.
-- **Title bar** — just `Sonar`. The search's numbers live in the status bar, not up here.
+- **Title bar** — Sonar draws its own: a navy bar with the title centered, minimize, maximize and close buttons on the right, and a thin gray border round the whole window. The title is just `Sonar`; the search's numbers live in the status bar, not up here. Drag the bar to move the window, double-click it to maximize or restore, and drag any edge or corner to resize. The title dims while another window has focus. The Settings dialog, the help windows and every message box wear the same bar with only a close button. The one window that does not is the folder chooser behind **…**, which is the desktop's own.
 
 The divider between the two panes is draggable — grab it and give whichever side you are reading more room.
 
@@ -516,6 +516,10 @@ The text is selectable, so a regex fragment can be copied straight out of a wind
 | Open the Options menu | **Alt+O** |
 | Settings, Query Syntax, User Guide from the open menu | **S** / **Q** / **U** |
 | Resize the panes | drag the divider between them |
+| Move the window | drag the title bar |
+| Maximize or restore the window | double-click the title bar, or click its middle button |
+| Resize the window | drag any edge or corner |
+| The desktop's window menu (Always on Top, Move to Workspace…) | **Alt+Space** — right-clicking the title bar does not open it |
 | Save the settings dialog | **Enter** |
 | Close a dialog | **Esc** |
 

@@ -108,6 +108,12 @@ SPLITTER_HANDLE_WIDTH = 10
 # as a lighter()/darker() percentage.
 SPLITTER_CONTRAST = 150
 
+# The scroll-bar handle, passed to every `apply_scrollbars()` as `handle=`:
+# the GTK theme's own handle gray, so Sonar's bars match the GTK apps beside
+# it and the other apps sharing windowchrome. windowchrome's default derives
+# the handle from the pane color instead, which suits no other toolkit.
+SCROLLBAR_HANDLE = "#777777"
+
 # Menu padding, in pixels: the space around the label of a menu-bar title and
 # of an item inside a menu. Both are bigger targets than the desktop's default,
 # which is sized for a mouse that never misses. The menus carry so few items

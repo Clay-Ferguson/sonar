@@ -8,7 +8,7 @@ Run with `./tests/run.sh` (see `AGENTS.md`). These are integration tests: they r
 
 `conftest.py` builds every fixture archive from the standard library into pytest's `tmp_path`, so nothing is checked in. `helpers.py` reads the window back — `labels()`, `highlighted()`, `select()`, `nav()`, `status()`, `searching()`. The `spawned` fixture and `NOOP_OPENER` record what Open or the folder button hands to the system opener. `search(folder, query, mode)` sets the mode dropdown.
 
-Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`, `test_spec` (no Qt, bar one window test), `test_preview` (`PreviewPanel` and `SearchStatusBar` on their own), `test_launch` (`TempCopies`, and the guard that the non-widget modules never import Qt), `test_rules` (AGENTS.md rules read off the source: no hand-built buttons, no shells).
+Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `test_queries`, `test_nested`, `test_fuzzy`, `test_status`, `test_help`, `test_names`, `test_patterns`, `test_main`, `test_spec` (no Qt, bar one window test), `test_preview` (`PreviewPanel` and `SearchStatusBar` on their own), `test_launch` (`TempCopies`, and the guard that the non-widget modules never import Qt), `test_rules` (AGENTS.md rules read off the source: no hand-built buttons, no shells, no static message boxes), `test_frame` (every window and dialog wears windowchrome's frame; the frame's own behavior is windowchrome's to test).
 
 ## Fixtures worth knowing
 
@@ -17,7 +17,7 @@ Suites: `test_archive` (no Qt), `test_config`, `test_settings`, `test_window`, `
 - `name_tree` — for Filenames mode: a folder, an empty file, a mixed-case name, and a file with the word only in its content (content mode lists it, names mode must not).
 - `pattern_tree` — for the include/exclude lists, run for real in both modes: `node_modules` at two depths, `src/generated` beside `other/generated`, a `.log`, a `.md` and a `.txt`, and a zip holding one of each. Every *name* and every file's text carries `needle`, so both modes find the same set and a difference is the pattern's doing. The zip's member names leave the word out on purpose — a zip stores its names uncompressed, and they would match a raw search with `-z` off.
 - `conf` — writes a config and points `config.CONFIG_PATH` at a temp file, so no test reaches the real `~/.config`. It is read at call time, so rebinding the module attribute is enough.
-- `dialogs` — **autouse, and load-bearing.** A `QMessageBox` still blocks for a click under `offscreen`, so one raised by code under test hangs the run instead of failing it. This intercepts them and hands back what would have been shown, which is also how to assert a problem *was* reported.
+- `dialogs` — **autouse, and load-bearing.** A `QMessageBox` still blocks for a click under `offscreen`, so one raised by code under test hangs the run instead of failing it. This intercepts them at `QMessageBox.exec()` — where `sonarex/messages.py` runs every box after framing it — and hands back what would have been shown, which is also how to assert a problem *was* reported. A static `QMessageBox.warning()` would exec inside C++ and slip past it, which is one reason the package has none (`test_no_static_message_box`).
 
 ## Gotchas
 

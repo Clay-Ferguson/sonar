@@ -20,14 +20,13 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
-    QMessageBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
-from windowchrome import apply_scrollbars, close_markdown_windows
+from windowchrome import apply_frame, apply_scrollbars, close_markdown_windows
 
-from . import APP_NAME
+from . import APP_NAME, messages
 from .archive import Hit, member_levels, parse_result_line
 from .config import load_settings
 from .help import show_query_syntax, show_user_guide
@@ -41,6 +40,7 @@ from .spec import SearchSpec, search_problems
 from .statusbar import SearchStatusBar
 from .style import (
     PRIMARY_BUTTON_BG,
+    SCROLLBAR_HANDLE,
     SECONDARY_BUTTON_BG,
     SPLITTER_HANDLE_WIDTH,
     action_button,
@@ -96,7 +96,11 @@ class MainWindow(QMainWindow):
     def __init__(self, folder: str) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1100, 700)
+        # windowchrome's own title bar and border, in place of the system's
+        # (README §13). The title bar is inside the window, so its height is
+        # added to make the room below it what 700 always gave.
+        frame = apply_frame(self)
+        self.resize(1100, 700 + frame.title_bar.height())
 
         self._runner = SearchRunner(self)
         self._runner.matchFound.connect(self._on_match)
@@ -113,8 +117,9 @@ class MainWindow(QMainWindow):
         self._build_menus()
 
         # A QMainWindow so the menu bar is the window's own — Qt places it
-        # under the title bar, or hands it to the desktop's global menu where
-        # there is one. Everything else lives on a plain central widget, which
+        # under the title bar (the frame keeps it there: it lives in the
+        # window's contents margins), or hands it to the desktop's global menu
+        # where there is one. Everything else lives on a plain central widget, which
         # is what the layout below fills.
         central = QWidget()
         self.setCentralWidget(central)
@@ -205,7 +210,7 @@ class MainWindow(QMainWindow):
 
         # The wider scroll bars; applied per scroll bar so the list itself
         # keeps native rendering. The panel does the same for its own panes.
-        apply_scrollbars(self.results)
+        apply_scrollbars(self.results, handle=SCROLLBAR_HANDLE)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
@@ -251,7 +256,7 @@ class MainWindow(QMainWindow):
         settings_action.setStatusTip("Search settings (include / exclude patterns)")
         # Nothing to refresh afterwards: the config is re-read at the start of
         # every search, so a saved change applies from the next Search press.
-        settings_action.triggered.connect(lambda: show_settings(self))
+        settings_action.triggered.connect(self._open_settings)
         options.addAction(settings_action)
 
         # Both documents sit on Options directly rather than under a Help
@@ -259,13 +264,28 @@ class MainWindow(QMainWindow):
         # a submenu costs a keystroke and a hover on every visit.
         syntax_action = QAction("&Query Syntax", self)
         syntax_action.setStatusTip("What can go in the query field")
-        syntax_action.triggered.connect(lambda: show_query_syntax(self))
+        syntax_action.triggered.connect(self._open_query_syntax)
         options.addAction(syntax_action)
 
         guide_action = QAction("&User Guide", self)
         guide_action.setStatusTip("Everything Sonar does")
-        guide_action.triggered.connect(lambda: show_user_guide(self))
+        guide_action.triggered.connect(self._open_user_guide)
         options.addAction(guide_action)
+
+    # Methods rather than `lambda: show_settings(self)`: a lambda holding
+    # `self` and connected to one of the window's own actions makes the window
+    # a reference cycle, freed whenever the cycle collector next runs — which,
+    # measured, can be in the middle of painting another window's frame, and
+    # crashes. PyQt holds a bound method without keeping `self` alive.
+
+    def _open_settings(self) -> None:
+        show_settings(self)
+
+    def _open_query_syntax(self) -> None:
+        show_query_syntax(self)
+
+    def _open_user_guide(self) -> None:
+        show_user_guide(self)
 
     # -- the status bar -----------------------------------------------------
 
@@ -291,7 +311,7 @@ class MainWindow(QMainWindow):
         most — a rejected regex and a missing editor — are long enough that a
         truncated title would hide the part that says what to fix.
         """
-        QMessageBox.warning(self, APP_NAME, message)
+        messages.warning(self, APP_NAME, message)
 
     # -- actions -----------------------------------------------------------
 

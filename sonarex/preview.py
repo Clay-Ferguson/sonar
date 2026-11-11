@@ -43,6 +43,7 @@ from .style import (
     NAV_BUTTON_BG,
     NAV_GROUP_SPACING,
     PANE_GAP,
+    SCROLLBAR_HANDLE,
     SECONDARY_BUTTON_BG,
     action_button,
     icon_button,
@@ -210,7 +211,7 @@ class PreviewPanel(QWidget):
 
         # The wider scroll bars; applied per scroll bar so the pane itself
         # keeps native rendering.
-        apply_scrollbars(self.text)
+        apply_scrollbars(self.text, handle=SCROLLBAR_HANDLE)
 
     def _show_pane(self, pdf: bool) -> None:
         """Put either the PDF pane or the text pane in front.

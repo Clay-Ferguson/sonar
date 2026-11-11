@@ -63,3 +63,19 @@ def test_nothing_runs_through_a_shell(path):
             if keyword.arg == "shell" and shell_on:
                 offenders.append(call.lineno)
     assert offenders == [], f"shell use in {path.name} at lines {offenders}"
+
+
+# The static boxes build and exec in one call, so there is no box to frame.
+STATIC_MESSAGE_BOXES = {
+    f"QMessageBox.{name}" for name in ("critical", "warning", "information", "question", "about")
+}
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: p.name)
+def test_no_static_message_box(path):
+    """Every message box goes through `messages.py`, which frames it. A static
+    `QMessageBox.warning()` shows the system's title bar beside the framed
+    window — and would slip past the `dialogs` fixture, which catches boxes
+    at `exec()`, and hang the test run."""
+    static = [call.lineno for call in _calls(path) if _name(call.func) in STATIC_MESSAGE_BOXES]
+    assert static == [], f"static QMessageBox call in {path.name} at lines {static}"
